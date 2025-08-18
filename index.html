@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador de Fluxos Logísticos</title>
+    
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; display: flex; height: 100vh; }
+        #sidebar { width: 320px; padding: 20px; background-color: #f4f4f9; overflow-y: auto; border-right: 1px solid #ddd; }
+        #map-container { flex-grow: 1; display: flex; flex-direction: column; }
+        #map { flex-grow: 1; }
+        h1, h3 { color: #333; margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;}
+        label { font-weight: bold; }
+        input[type="file"] { margin-top: 5px; width: 100%; }
+        #status { margin-top: 15px; padding: 10px; font-style: italic; color: #333; background-color: #e9ecef; border-radius: 5px; text-align: center; }
+        .controls-section { margin-bottom: 25px; }
+        .filter-controls div { margin-bottom: 8px; }
+        .filter-controls label { font-weight: normal; }
+        .color-box { display: inline-block; width: 12px; height: 12px; margin-right: 8px; border: 1px solid #666; vertical-align: middle; }
+        #run-button { width: 100%; padding: 12px; font-size: 16px; font-weight: bold; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px; }
+        #run-button:disabled { background-color: #9c9c9c; cursor: not-allowed; }
+    </style>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+</head>
+<body>
+    <div id="sidebar">
+        <h1>Visualizador</h1>
+
+        <div class="controls-section">
+            <h3>1. Carregar Arquivos</h3>
+            <label for="flows-file">Arquivo de Fluxos (.csv):</label>
+            <input type="file" id="flows-file" accept=".csv">
+            <br><br>
+            <label for="locations-file">Arquivo de Localizações (.xlsx):</label>
+            <input type="file" id="locations-file" accept=".xlsx" disabled>
+        </div>
+
+        <div class="controls-section">
+            <h3>2. Filtrar Fluxos</h3>
+            <div id="filters-container">
+                <p style="font-size: 14px; color: #666;">Os filtros aparecerão aqui após carregar os dados.</p>
+            </div>
+        </div>
+
+        <button id="run-button" disabled>Gerar Mapa</button>
+        <div id="status">Carregue os dois arquivos para começar.</div>
+    </div>
+    
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
