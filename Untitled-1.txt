@@ -1,0 +1,2 @@
+  git config --global user.email "fernanda.h.rodrigues@arcelormittal.com.br"
+  git config --global user.name "FernandaHRodrigues"

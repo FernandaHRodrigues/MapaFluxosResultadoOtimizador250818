@@ -5,56 +5,63 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visualizador de Fluxos Logísticos</title>
     
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 0; display: flex; height: 100vh; }
-        #sidebar { width: 320px; padding: 20px; background-color: #f4f4f9; overflow-y: auto; border-right: 1px solid #ddd; }
-        #map-container { flex-grow: 1; display: flex; flex-direction: column; }
-        #map { flex-grow: 1; }
-        h1, h3 { color: #333; margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;}
-        label { font-weight: bold; }
-        input[type="file"] { margin-top: 5px; width: 100%; }
-        #status { margin-top: 15px; padding: 10px; font-style: italic; color: #333; background-color: #e9ecef; border-radius: 5px; text-align: center; }
-        .controls-section { margin-bottom: 25px; }
-        .filter-controls div { margin-bottom: 8px; }
-        .filter-controls label { font-weight: normal; }
-        .color-box { display: inline-block; width: 12px; height: 12px; margin-right: 8px; border: 1px solid #666; vertical-align: middle; }
-        #run-button { width: 100%; padding: 12px; font-size: 16px; font-weight: bold; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px; }
-        #run-button:disabled { background-color: #9c9c9c; cursor: not-allowed; }
-    </style>
-
+    <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
 </head>
 <body>
     <div id="sidebar">
-        <h1>Visualizador</h1>
+        <div class="logo-container">
+            <img src="logo.png" alt="Logo da Empresa">
+        </div>
 
         <div class="controls-section">
             <h3>1. Carregar Arquivos</h3>
-            <label for="flows-file">Arquivo de Fluxos (.csv):</label>
+            <label for="flows-file">1. Arquivo de Fluxos (.cvs):</label>
             <input type="file" id="flows-file" accept=".csv">
             <br><br>
-            <label for="locations-file">Arquivo de Localizações (.xlsx):</label>
-            <input type="file" id="locations-file" accept=".xlsx" disabled>
+            <label for="locations-file">2. Arquivo de Localizações (.xlsx):</label>
+            <input type="file" id="locations-file" accept=".xlsx">
+            <br><br>
+            <label for="lanes-file">3. Arquivo de Trechos (.xlsx):</label>
+            <input type="file" id="lanes-file" accept=".xlsx">
         </div>
+        
+        <button id="run-button" class="action-button" disabled>Gerar Mapa</button>
+        <button id="highlights-button" class="action-button" disabled>Mostrar Highlights</button>
 
-        <div class="controls-section">
-            <h3>2. Filtrar Fluxos</h3>
-            <div id="filters-container">
-                <p style="font-size: 14px; color: #666;">Os filtros aparecerão aqui após carregar os dados.</p>
-            </div>
+        <div class="controls-section visualization-controls" style="display: none;">
+            <h3>2. Opções de Visualização</h3>
+            
+            <label class="geo-filter-controls">Filtro de Mercado</label>
+            <div><input type="radio" id="geo-all" name="geo-filter" value="all" checked> <label for="geo-all">Todos</label></div>
+            <div><input type="radio" id="geo-mi" name="geo-filter" value="mi"> <label for="geo-mi">Mercado Interno</label></div>
+            <div><input type="radio" id="geo-me" name="geo-filter" value="me"> <label for="geo-me">Mercado Externo</label></div>
+
+            <div class="slider-container"><label for="thickness-slider" class="slider-label">Proporção da Espessura (Linhas)</label><input type="range" id="thickness-slider" min="0.1" max="3" value="1" step="0.1"></div>
+            <div class="slider-container"><label for="marker-radius-slider" class="slider-label">Tamanho do Ponto (Locais)</label><input type="range" id="marker-radius-slider" min="1" max="20" value="8" step="1"></div>
         </div>
-
-        <button id="run-button" disabled>Gerar Mapa</button>
-        <div id="status">Carregue os dois arquivos para começar.</div>
+        <div class="controls-section filter-controls">
+            <h3>3. Filtros por Modo de Transporte</h3>
+            <div id="filters-container"><p style="font-size: 14px; color: #666;">Os filtros aparecerão aqui.</p></div>
+        </div>
+        
+        <div id="status">Carregue os três arquivos para começar.</div>
     </div>
     
     <div id="map-container">
         <div id="map"></div>
+        <div id="highlights-panel">
+            <div class="highlights-header">
+                <h4>Highlights</h4>
+                <button class="close-button" id="close-highlights">&times;</button>
+            </div>
+            <div class="highlights-content" id="highlights-content-body"><p>Os cálculos aparecerão aqui.</p></div>
+        </div>
     </div>
-
-    <script src="script.js"></script>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="Script.js"></script>
 </body>
 </html>
