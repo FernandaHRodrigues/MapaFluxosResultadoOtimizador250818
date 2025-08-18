@@ -1,4 +1,4 @@
-// Versão Definitiva - Correção dos filtros e leitura de arquivos - 18/08/2025
+// Versão Definitiva - Correção da interatividade e filtros - 19/08/2025
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Seleção de todos os elementos do DOM ---
     const flowsFileInput = document.getElementById('flows-file');
@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
-    // Funções de leitura de arquivo separadas para CSV e XLSX
+    // Funções de leitura de arquivo
     const readXlsxFile = (file) => {
         return new Promise((resolve, reject) => {
             if (!file) return reject("Nenhum arquivo fornecido.");
@@ -116,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Função principal que processa os dados e desenha o mapa
+    // Função principal que processa os dados
     const processDataAndCreateLayers = () => {
         if (!flowsData || !locationsData || !lanesData) {
             statusDiv.textContent = 'Erro: Nem todos os arquivos foram carregados corretamente.';
@@ -154,7 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }, {});
             locationInfo = locationsData.reduce((acc, row) => {
                 const locId = String(row['Location Id']).trim();
-                if (locId) acc[locId] = { lat: row['Latitude'], lon: row['Longitude'], city: row['City'], state: row['State'] };
+                if (locId) acc[locId] = { lat: row['Latitude'], lon: row['Longitude'], city: row['City'], state: row['State'], country: String(row['Country']).trim() };
                 return acc;
             }, {});
             locationCoords = Object.entries(locationInfo).reduce((acc, [id, details]) => {
@@ -181,9 +181,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const color = transportModeColorMap[transportMode] || transportModeColorMap["Default"];
                     const polyline = L.polyline([originCoords, destCoords], { color, opacity: 0.7 });
                     
-                    const origin = flow.origin.toUpperCase();
-                    const dest = flow.destination.toUpperCase();
-                    let marketType = (origin.includes('BRA') && dest.includes('BRA')) ? 'mi' : 'me';
+                    // LÓGICA CORRIGIDA para Mercado Interno/Externo
+                    const originCountry = locationInfo[flow.origin]?.country;
+                    const destCountry = locationInfo[flow.destination]?.country;
+                    let marketType = (originCountry === 'Brasil' && destCountry === 'Brasil') ? 'mi' : 'me';
 
                     polyline.flowData = { ...flow, transportMode, market: marketType };
                     allPolylines.push(polyline);
@@ -197,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const color = markerColorMap[group] || markerColorMap["Default"];
                     const circleMarker = L.circleMarker(locationCoords[locId], { fillColor: color, color: "#000", weight: 1.5, opacity: 1, fillOpacity: 0.9, radius: 8 });
                     circleMarker.locationId = locId;
-                    // circleMarker.on('click', onMarkerClick); // O onMarkerClick será adicionado depois se necessário
+                    circleMarker.on('click', onMarkerClick); // ADICIONADO evento de clique
                     allMarkers[locId] = circleMarker;
                 }
             });
@@ -207,14 +208,14 @@ document.addEventListener('DOMContentLoaded', () => {
             setupProductFilters(Array.from(uniqueProducts));
             
             statusDiv.textContent = 'Passo 5/5: Desenhando mapa...';
-            vizControls.style.display = 'block'; // Mostra os controles de filtro
+            vizControls.style.display = 'block';
             updateMapView();
             runButton.disabled = false;
             highlightsButton.disabled = false;
         }, 10);
     };
 
-    // Função que atualiza a visualização do mapa com base nos filtros
+    // Função que atualiza a visualização do mapa
     const updateMapView = () => {
         statusDiv.textContent = 'Atualizando visualização...';
         const geoFilter = document.querySelector('input[name="geo-filter"]:checked').value;
@@ -255,6 +256,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     weight = 2 + (normalizedVolume * 15 * thicknessMultiplier);
                 }
                 p.setStyle({ weight });
+
+                // ADICIONADO popup para as linhas de fluxo
+                const flow = p.flowData;
+                const formattedVolume = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(flow.volume);
+                const sortedMaterials = Object.entries(flow.materials).sort(([, a], [, b]) => b - a);
+                let materialsHTML = '<ul style="margin: 5px 0 0 0; padding-left: 20px; max-height: 100px; overflow-y: auto;">';
+                if (sortedMaterials.length > 0) {
+                    sortedMaterials.forEach(([name, vol]) => { materialsHTML += `<li>${name}: ${new Intl.NumberFormat('pt-BR').format(vol)}</li>`; });
+                } else {
+                    materialsHTML += '<li>Nenhum material detalhado.</li>';
+                }
+                materialsHTML += '</ul>';
+                const popupContent = `<b>Modo:</b> ${flow.transportMode}<br><b>De:</b> ${flow.origin}<br><b>Para:</b> ${flow.destination}<br><b>Volume Total:</b> ${formattedVolume}<br><b>Materiais:</b>${materialsHTML}`;
+                p.bindPopup(popupContent);
+
                 if (layerGroups[p.flowData.transportMode]) {
                     layerGroups[p.flowData.transportMode].addLayer(p);
                 }
@@ -325,9 +341,62 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // Funções de highlights, clique no marcador, etc (placeholders)
+    // FUNÇÃO ADICIONADA para o clique no marcador
+    const onMarkerClick = (e) => {
+        const clickedLocationId = e.target.locationId;
+        const outgoing = {};
+        const incoming = {};
+        let totalOutgoingVolume = 0;
+        let totalIncomingVolume = 0;
+
+        finalFlowsForAnalysis.forEach(flow => {
+            if (flow.origin === clickedLocationId) {
+                totalOutgoingVolume += flow.volume;
+                for (const material in flow.materials) {
+                    if (!outgoing[material]) outgoing[material] = 0;
+                    outgoing[material] += flow.materials[material];
+                }
+            }
+            if (flow.destination === clickedLocationId) {
+                totalIncomingVolume += flow.volume;
+                for (const material in flow.materials) {
+                    if (!incoming[material]) incoming[material] = 0;
+                    incoming[material] += flow.materials[material];
+                }
+            }
+        });
+
+        let popupContent = `<div class="location-popup"><b>Resumo de ${clickedLocationId}</b><br>`;
+        popupContent += `<b style="color: #c0392b;">Total Saídas:</b> ${new Intl.NumberFormat('pt-BR').format(totalOutgoingVolume.toFixed(2))}<br>`;
+        popupContent += `<b style="color: #27ae60;">Total Entradas:</b> ${new Intl.NumberFormat('pt-BR').format(totalIncomingVolume.toFixed(2))}`;
+        
+        popupContent += '<h4>SAÍDAS</h4>';
+        if (Object.keys(outgoing).length > 0) {
+            popupContent += '<ul>';
+            Object.entries(outgoing).forEach(([mat, vol]) => {
+                popupContent += `<li>${mat}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`;
+            });
+            popupContent += '</ul>';
+        } else {
+            popupContent += '<p>Nenhum fluxo de saída registrado.</p>';
+        }
+
+        popupContent += '<h4>ENTRADAS</h4>';
+        if (Object.keys(incoming).length > 0) {
+            popupContent += '<ul>';
+            Object.entries(incoming).forEach(([mat, vol]) => {
+                popupContent += `<li>${mat}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`;
+            });
+            popupContent += '</ul>';
+        } else {
+            popupContent += '<p>Nenhum fluxo de entrada registrado.</p>';
+        }
+        popupContent += '</div>';
+
+        L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
+    };
+    
     const calculateAndShowHighlights = () => { /* Sua lógica de highlights aqui */ };
-    const onMarkerClick = () => { /* Sua lógica de clique no marcador aqui */ };
     const getLocationGroup = (locationId) => {
         const id = locationId.toUpperCase();
         if (id.includes('CLIENTE') || id.includes('CLI')) return 'Cliente';
