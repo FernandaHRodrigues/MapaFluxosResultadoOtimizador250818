@@ -1,4 +1,4 @@
-// Versão Definitiva - Correção da interatividade e filtros - 19/08/2025
+// Versão Definitiva - Adicionado Custo por Rota - 19/08/2025
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Seleção de todos os elementos do DOM ---
     const flowsFileInput = document.getElementById('flows-file');
@@ -146,12 +146,20 @@ document.addEventListener('DOMContentLoaded', () => {
             finalFlowsForAnalysis = Object.values(aggregated);
             
             statusDiv.textContent = 'Passo 2/5: Processando localizações e trechos...';
+            // --- INÍCIO DA MODIFICAÇÃO: Armazena modo de transporte E custo ---
             const transportModeMap = lanesData.reduce((acc, row) => {
                 const origin = String(row['Origin Location Id']).trim();
                 const dest = String(row['Destination Location Id']).trim();
-                if (origin && dest) acc[`${origin}->${dest}`] = String(row['Trecho']).trim();
+                if (origin && dest) {
+                    acc[`${origin}->${dest}`] = {
+                        mode: String(row['Trecho']).trim(),
+                        cost: parseFloat(String(row['Unit Transfer Cost']).replace(',', '.')) || 0
+                    };
+                }
                 return acc;
             }, {});
+            // --- FIM DA MODIFICAÇÃO ---
+
             locationInfo = locationsData.reduce((acc, row) => {
                 const locId = String(row['Location Id']).trim();
                 if (locId) acc[locId] = { lat: row['Latitude'], lon: row['Longitude'], city: row['City'], state: row['State'], country: String(row['Country']).trim() };
@@ -176,17 +184,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 const originCoords = locationCoords[flow.origin];
                 const destCoords = locationCoords[flow.destination];
                 if (originCoords && destCoords) {
-                    const transportMode = transportModeMap[`${flow.origin}->${flow.destination}`] || "Default";
+                    // --- INÍCIO DA MODIFICAÇÃO: Recupera objeto com modo e custo ---
+                    const laneInfo = transportModeMap[`${flow.origin}->${flow.destination}`] || { mode: "Default", cost: 0 };
+                    const transportMode = laneInfo.mode;
                     uniqueModes.add(transportMode);
+                    // --- FIM DA MODIFICAÇÃO ---
+
                     const color = transportModeColorMap[transportMode] || transportModeColorMap["Default"];
                     const polyline = L.polyline([originCoords, destCoords], { color, opacity: 0.7 });
                     
-                    // LÓGICA CORRIGIDA para Mercado Interno/Externo
                     const originCountry = locationInfo[flow.origin]?.country;
                     const destCountry = locationInfo[flow.destination]?.country;
                     let marketType = (originCountry === 'Brasil' && destCountry === 'Brasil') ? 'mi' : 'me';
 
-                    polyline.flowData = { ...flow, transportMode, market: marketType };
+                    // --- INÍCIO DA MODIFICAÇÃO: Adiciona o custo ao objeto de dados do fluxo ---
+                    polyline.flowData = { ...flow, transportMode, market: marketType, unitCost: laneInfo.cost };
+                    // --- FIM DA MODIFICAÇÃO ---
                     allPolylines.push(polyline);
                 }
             });
@@ -198,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const color = markerColorMap[group] || markerColorMap["Default"];
                     const circleMarker = L.circleMarker(locationCoords[locId], { fillColor: color, color: "#000", weight: 1.5, opacity: 1, fillOpacity: 0.9, radius: 8 });
                     circleMarker.locationId = locId;
-                    circleMarker.on('click', onMarkerClick); // ADICIONADO evento de clique
+                    circleMarker.on('click', onMarkerClick);
                     allMarkers[locId] = circleMarker;
                 }
             });
@@ -257,9 +270,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 p.setStyle({ weight });
 
-                // ADICIONADO popup para as linhas de fluxo
+                // --- INÍCIO DA MODIFICAÇÃO: Adiciona custo ao popup da rota ---
                 const flow = p.flowData;
                 const formattedVolume = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(flow.volume);
+                
+                const unitCost = flow.unitCost || 0;
+                const totalCost = unitCost * flow.volume;
+                const formattedUnitCost = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(unitCost);
+                const formattedTotalCost = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalCost);
+
                 const sortedMaterials = Object.entries(flow.materials).sort(([, a], [, b]) => b - a);
                 let materialsHTML = '<ul style="margin: 5px 0 0 0; padding-left: 20px; max-height: 100px; overflow-y: auto;">';
                 if (sortedMaterials.length > 0) {
@@ -268,8 +287,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     materialsHTML += '<li>Nenhum material detalhado.</li>';
                 }
                 materialsHTML += '</ul>';
-                const popupContent = `<b>Modo:</b> ${flow.transportMode}<br><b>De:</b> ${flow.origin}<br><b>Para:</b> ${flow.destination}<br><b>Volume Total:</b> ${formattedVolume}<br><b>Materiais:</b>${materialsHTML}`;
+
+                const popupContent = `
+                    <b>Modo:</b> ${flow.transportMode}<br>
+                    <b>De:</b> ${flow.origin}<br>
+                    <b>Para:</b> ${flow.destination}<br>
+                    <hr style="margin: 4px 0;">
+                    <b>Volume Total:</b> ${formattedVolume}<br>
+                    <b>Custo Unitário:</b> ${formattedUnitCost}<br>
+                    <b>Custo Total:</b> ${formattedTotalCost}<br>
+                    <hr style="margin: 4px 0;">
+                    <b>Materiais:</b>${materialsHTML}
+                `;
                 p.bindPopup(popupContent);
+                // --- FIM DA MODIFICAÇÃO ---
 
                 if (layerGroups[p.flowData.transportMode]) {
                     layerGroups[p.flowData.transportMode].addLayer(p);
@@ -294,30 +325,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
     
-    // Função que cria os checkboxes para os produtos
+    // Demais funções (setupProductFilters, setupModeFilters, onMarkerClick, etc.) continuam aqui sem alterações
+    // ...
     const setupProductFilters = (products) => {
         productFilterContainer.innerHTML = '';
-        
         const allDiv = document.createElement('div');
         allDiv.innerHTML = `<label style="font-weight: bold;"><input type="checkbox" name="product" value="all" checked> Selecionar Todos</label>`;
         productFilterContainer.appendChild(allDiv);
-
         const allCheckbox = allDiv.querySelector('input');
         const productCheckboxes = [];
-
         products.sort().forEach(product => {
             const productDiv = document.createElement('div');
             productDiv.innerHTML = `<label><input type="checkbox" name="product" value="${product}" checked> ${product}</label>`;
             const checkbox = productDiv.querySelector('input');
             productCheckboxes.push(checkbox);
-            
             checkbox.addEventListener('change', () => {
                 allCheckbox.checked = productCheckboxes.every(cb => cb.checked);
                 updateMapView();
             });
             productFilterContainer.appendChild(productDiv);
         });
-
         allCheckbox.addEventListener('change', () => {
             productCheckboxes.forEach(cb => {
                 cb.checked = allCheckbox.checked;
@@ -325,8 +352,6 @@ document.addEventListener('DOMContentLoaded', () => {
             updateMapView();
         });
     };
-    
-    // Função que cria os checkboxes para os modos de transporte
     const setupModeFilters = (modes) => {
         filtersContainer.innerHTML = '';
         layerGroups = {};
@@ -340,15 +365,12 @@ document.addEventListener('DOMContentLoaded', () => {
             filtersContainer.appendChild(filterDiv);
         });
     };
-
-    // FUNÇÃO ADICIONADA para o clique no marcador
     const onMarkerClick = (e) => {
         const clickedLocationId = e.target.locationId;
         const outgoing = {};
         const incoming = {};
         let totalOutgoingVolume = 0;
         let totalIncomingVolume = 0;
-
         finalFlowsForAnalysis.forEach(flow => {
             if (flow.origin === clickedLocationId) {
                 totalOutgoingVolume += flow.volume;
@@ -365,11 +387,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
-
         let popupContent = `<div class="location-popup"><b>Resumo de ${clickedLocationId}</b><br>`;
         popupContent += `<b style="color: #c0392b;">Total Saídas:</b> ${new Intl.NumberFormat('pt-BR').format(totalOutgoingVolume.toFixed(2))}<br>`;
         popupContent += `<b style="color: #27ae60;">Total Entradas:</b> ${new Intl.NumberFormat('pt-BR').format(totalIncomingVolume.toFixed(2))}`;
-        
         popupContent += '<h4>SAÍDAS</h4>';
         if (Object.keys(outgoing).length > 0) {
             popupContent += '<ul>';
@@ -380,7 +400,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             popupContent += '<p>Nenhum fluxo de saída registrado.</p>';
         }
-
         popupContent += '<h4>ENTRADAS</h4>';
         if (Object.keys(incoming).length > 0) {
             popupContent += '<ul>';
@@ -392,10 +411,8 @@ document.addEventListener('DOMContentLoaded', () => {
             popupContent += '<p>Nenhum fluxo de entrada registrado.</p>';
         }
         popupContent += '</div>';
-
         L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
     };
-    
     const calculateAndShowHighlights = () => { /* Sua lógica de highlights aqui */ };
     const getLocationGroup = (locationId) => {
         const id = locationId.toUpperCase();
