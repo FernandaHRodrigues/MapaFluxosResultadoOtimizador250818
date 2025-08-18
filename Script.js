@@ -1,4 +1,4 @@
-// Versão Final com Análise de Capacidade nos Highlights - 18/08/2025
+// Versão Final com Filtro de Produto - 18/08/2025
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Seleção de todos os elementos do DOM ---
     const flowsFileInput = document.getElementById('flows-file');
@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const vizControls = document.querySelector('.visualization-controls');
     const thicknessSlider = document.getElementById('thickness-slider');
     const markerRadiusSlider = document.getElementById('marker-radius-slider');
+    const productFilterSelect = document.getElementById('product-filter'); // Novo seletor
 
     // --- 2. Variáveis de Estado Global ---
     let flowsData = null, locationsData = null, lanesData = null;
@@ -142,6 +143,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const finalFlows = Object.values(aggregated);
             finalFlowsForHighlights = finalFlows;
 
+            // --- INÍCIO DA MODIFICAÇÃO: Coleta de produtos únicos ---
+            const uniqueProducts = new Set();
+            finalFlows.forEach(flow => {
+                Object.keys(flow.materials).forEach(material => {
+                    if (material !== 'Desconhecido') {
+                        uniqueProducts.add(material);
+                    }
+                });
+            });
+            setupProductFilters(Array.from(uniqueProducts));
+            // --- FIM DA MODIFICAÇÃO ---
+
+
             statusDiv.textContent = 'Passo 3/5: Processando localizações e trechos...';
             const transportModeMap = lanesData.reduce((acc, row) => {
                 const origin = String(row['Origin Location Id']).trim();
@@ -203,6 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateMapView() {
         statusDiv.textContent = 'Atualizando visualização...';
         const geoFilter = document.querySelector('input[name="geo-filter"]:checked').value;
+        const selectedProduct = productFilterSelect.value; // Pega o produto selecionado
         const thicknessMultiplier = parseFloat(thicknessSlider.value);
         const markerRadius = parseFloat(markerRadiusSlider.value);
         
@@ -210,10 +225,21 @@ document.addEventListener('DOMContentLoaded', () => {
         markersLayer.clearLayers();
 
         vizControls.style.display = 'block';
-        const visiblePolylines = allPolylines.filter(p => { if (geoFilter === 'all') return true; return p.flowData.market === geoFilter; });
+        
+        // --- INÍCIO DA MODIFICAÇÃO: Aplica o filtro de produto ---
+        const visiblePolylines = allPolylines.filter(p => {
+            const marketMatch = (geoFilter === 'all') || (p.flowData.market === geoFilter);
+            const productMatch = (selectedProduct === 'all') || (p.flowData.materials && p.flowData.materials[selectedProduct]);
+            return marketMatch && productMatch;
+        });
+        // --- FIM DA MODIFICAÇÃO ---
+
         const volumes = visiblePolylines.map(p => p.flowData.volume).filter(v => v > 0);
         if (volumes.length === 0) {
             statusDiv.textContent = "Nenhum fluxo visível para os filtros selecionados.";
+            // Limpa o mapa se não houver fluxos
+            Object.values(layerGroups).forEach(group => map.removeLayer(group));
+            markersLayer.clearLayers();
             return;
         }
         
@@ -245,6 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        // Garante que todas as camadas sejam removidas antes de adicionar as visíveis
+        Object.values(layerGroups).forEach(group => map.removeLayer(group));
         document.querySelectorAll('#filters-container input[type="checkbox"]').forEach(checkbox => {
             if (checkbox.checked && layerGroups[checkbox.name]) {
                 map.addLayer(layerGroups[checkbox.name]);
@@ -262,66 +290,36 @@ document.addEventListener('DOMContentLoaded', () => {
         statusDiv.textContent = `Visualização atualizada. ${visiblePolylines.length} fluxos exibidos.`;
     }
 
-    // --- INÍCIO DA MODIFICAÇÃO: Lógica de Highlights para Análise de Capacidade ---
     function calculateAndShowHighlights() {
         if (!finalFlowsForHighlights || finalFlowsForHighlights.length === 0) {
             highlightsContentBody.innerHTML = '<p>Não há dados de fluxo para calcular os destaques.</p>';
             highlightsPanel.classList.add('visible');
             return;
         }
-
-        // 1. Definir as capacidades máximas para cada localização
-        const locationCapacities = {
-            'POR-BRA-ES-PMO': 5500000,
-            'POR-BRA-ES-TBO': 500000,
-            'POR-BRA-ES-TODOS': 5500000,
-            'POR-BRA-ES-TPS': 5500000,
-            'POR-BRA-SC-ITJ': 160000,
-            'POR-BRA-SC-SFS': 2800000,
-            'TFE-BRA-ES-AMT': 500000,
-            'USI-BRA-CE-PEC-AMP': 3000000,
-            'USI-BRA-ES-SER-AMT': 7200000
-        };
-
-        // 2. Calcular o throughput (soma de entradas e saídas) para cada localização
+        const locationCapacities = {'POR-BRA-ES-PMO': 5500000, 'POR-BRA-ES-TBO': 500000, 'POR-BRA-ES-TODOS': 5500000, 'POR-BRA-ES-TPS': 5500000, 'POR-BRA-SC-ITJ': 160000, 'POR-BRA-SC-SFS': 2800000, 'TFE-BRA-ES-AMT': 500000, 'USI-BRA-CE-PEC-AMP': 3000000, 'USI-BRA-ES-SER-AMT': 7200000};
         const locationThroughput = {};
         finalFlowsForHighlights.forEach(flow => {
-            // Adiciona volume à origem
             if (!locationThroughput[flow.origin]) locationThroughput[flow.origin] = 0;
             locationThroughput[flow.origin] += flow.volume;
-            // Adiciona volume ao destino
             if (!locationThroughput[flow.destination]) locationThroughput[flow.destination] = 0;
             locationThroughput[flow.destination] += flow.volume;
         });
-
-        // 3. Calcular a porcentagem de uso e preparar os dados para exibição
         const capacityAnalysis = [];
         for (const locationId in locationThroughput) {
             const throughput = locationThroughput[locationId];
             const capacity = locationCapacities[locationId];
             let percentage = 0;
-
             if (capacity && capacity > 0) {
                 percentage = (throughput / capacity) * 100;
             }
-            
-            capacityAnalysis.push({
-                id: locationId,
-                throughput: throughput,
-                percentage: percentage
-            });
+            capacityAnalysis.push({id: locationId, throughput: throughput, percentage: percentage});
         }
-        
-        // Ordena os resultados pela maior porcentagem de uso
         capacityAnalysis.sort((a, b) => b.percentage - a.percentage);
-
-        // 4. Montar o HTML para exibição
         let highlightsHTML = '<h4>Análise de Capacidade por Localização</h4>';
         if (capacityAnalysis.length > 0) {
             highlightsHTML += '<ul>';
             capacityAnalysis.forEach(item => {
                 const throughputFormatted = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(item.throughput);
-                // Só exibe a porcentagem se a capacidade foi definida
                 const percentageFormatted = item.percentage > 0 ? `<b>(${item.percentage.toFixed(2)}%)</b>` : '';
                 highlightsHTML += `<li><b>${item.id}:</b> ${throughputFormatted} TON ${percentageFormatted}</li>`;
             });
@@ -329,12 +327,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             highlightsHTML += '<p>Nenhum dado de movimentação encontrado.</p>';
         }
-
         highlightsContentBody.innerHTML = highlightsHTML;
         highlightsPanel.classList.add('visible');
     }
-    // --- FIM DA MODIFICAÇÃO ---
-
 
     function getLocationGroup(locationId) {
         const id = locationId.toUpperCase();
@@ -350,7 +345,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const incoming = {};
         let totalOutgoingVolume = 0;
         let totalIncomingVolume = 0;
-
         finalFlowsForHighlights.forEach(flow => {
             if (flow.origin === clickedLocationId) {
                 totalOutgoingVolume += flow.volume;
@@ -369,11 +363,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
-
         let popupContent = `<div class="location-popup"><b>Resumo de ${clickedLocationId}</b><br>`;
         popupContent += `<b style="color: #c0392b;">Total Saídas:</b> ${new Intl.NumberFormat('pt-BR').format(totalOutgoingVolume.toFixed(2))}<br>`;
         popupContent += `<b style="color: #27ae60;">Total Entradas:</b> ${new Intl.NumberFormat('pt-BR').format(totalIncomingVolume.toFixed(2))}`;
-        
         popupContent += '<h4>SAÍDAS</h4>';
         if (Object.keys(outgoing).length > 0) {
             popupContent += '<ul>';
@@ -389,7 +381,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             popupContent += '<p>Nenhum fluxo de saída registrado.</p>';
         }
-
         popupContent += '<h4>ENTRADAS</h4>';
         if (Object.keys(incoming).length > 0) {
             popupContent += '<ul>';
@@ -406,13 +397,23 @@ document.addEventListener('DOMContentLoaded', () => {
             popupContent += '<p>Nenhum fluxo de entrada registrado.</p>';
         }
         popupContent += '</div>';
-
-        L.popup()
-            .setLatLng(e.latlng)
-            .setContent(popupContent)
-            .openOn(map);
+        L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
     }
     
+    // --- INÍCIO DE NOVA FUNÇÃO: Cria o filtro de produtos ---
+    function setupProductFilters(products) {
+        productFilterSelect.innerHTML = '<option value="all">Todos os Produtos</option>'; // Reseta o filtro
+        products.sort(); // Ordena os produtos alfabeticamente
+        products.forEach(product => {
+            const option = document.createElement('option');
+            option.value = product;
+            option.textContent = product;
+            productFilterSelect.appendChild(option);
+        });
+        productFilterSelect.disabled = false; // Habilita o filtro
+    }
+    // --- FIM DE NOVA FUNÇÃO ---
+
     function setupModeFilters(uniqueModes) {
         filtersContainer.innerHTML = '';
         const allModes = Array.from(uniqueModes);
@@ -429,11 +430,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 </label>`;
             const checkbox = filterDiv.querySelector('input');
             checkbox.addEventListener('change', () => {
-                if (checkbox.checked) {
-                    if (layerGroups[mode]) map.addLayer(layerGroups[mode]);
-                } else {
-                    if (layerGroups[mode]) map.removeLayer(layerGroups[mode]);
-                }
+                // Ao mudar o filtro de modo, a visualização principal é chamada
+                updateMapView();
             });
             filtersContainer.appendChild(filterDiv);
         });
@@ -447,6 +445,10 @@ document.addEventListener('DOMContentLoaded', () => {
     highlightsButton.addEventListener('click', calculateAndShowHighlights);
     closeHighlightsButton.addEventListener('click', () => highlightsPanel.classList.remove('visible'));
     document.querySelectorAll('input[name="geo-filter"]').forEach(radio => radio.addEventListener('change', updateMapView));
+    
+    // Adiciona o evento para o novo filtro de produto
+    productFilterSelect.addEventListener('change', updateMapView);
+
     thicknessSlider.addEventListener('input', updateMapView);
     markerRadiusSlider.addEventListener('input', updateMapView);
 });

@@ -3,65 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualizador de Fluxos Logísticos</title>
-    
+    <title>Mapa de Fluxos Logísticos</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
 </head>
 <body>
     <div id="sidebar">
         <div class="logo-container">
-            <img src="logo.png" alt="Logo da Empresa">
+            <img src="logo.png" alt="ArcelorMittal Logo" class="logo">
         </div>
+        <h2>Controles</h2>
 
         <div class="controls-section">
             <h3>1. Carregar Arquivos</h3>
-            <label for="flows-file">1. Arquivo de Fluxos (.cvs):</label>
+            <label for="flows-file">1. Arquivo de Fluxos (.csv):</label>
             <input type="file" id="flows-file" accept=".csv">
             <br><br>
             <label for="locations-file">2. Arquivo de Localizações (.xlsx):</label>
-            <input type="file" id="locations-file" accept=".xlsx">
+            <input type="file" id="locations-file" accept=".xlsx" disabled>
             <br><br>
             <label for="lanes-file">3. Arquivo de Trechos (.xlsx):</label>
-            <input type="file" id="lanes-file" accept=".xlsx">
+            <input type="file" id="lanes-file" accept=".xlsx" disabled>
+        </div>
+
+        <div class="controls-section">
+            <button id="run-button" class="action-button" disabled>Gerar Mapa</button>
         </div>
         
-        <button id="run-button" class="action-button" disabled>Gerar Mapa</button>
-        <button id="highlights-button" class="action-button" disabled>Mostrar Highlights</button>
+        <div id="status">Por favor, carregue os arquivos em sequência.</div>
 
-        <div class="controls-section visualization-controls" style="display: none;">
-            <h3>2. Opções de Visualização</h3>
+        <div class="visualization-controls" style="display: none;">
+            <hr>
+            <h3>Filtros de Visualização</h3>
+
+            <div id="filters-section">
+                <h4>Filtro de Mercado</h4>
+                <label><input type="radio" name="geo-filter" value="all" checked> Todos</label>
+                <label><input type="radio" name="geo-filter" value="mi"> Mercado Interno</label>
+                <label><input type="radio" name="geo-filter" value="me"> Mercado Externo</label>
+            </div>
             
-            <label class="geo-filter-controls">Filtro de Mercado</label>
-            <div><input type="radio" id="geo-all" name="geo-filter" value="all" checked> <label for="geo-all">Todos</label></div>
-            <div><input type="radio" id="geo-mi" name="geo-filter" value="mi"> <label for="geo-mi">Mercado Interno</label></div>
-            <div><input type="radio" id="geo-me" name="geo-filter" value="me"> <label for="geo-me">Mercado Externo</label></div>
+            <div id="product-filter-section">
+                <h4>Filtro por Produto</h4>
+                <div id="product-filter-container">
+                    <select id="product-filter" disabled>
+                        <option value="all">Todos os Produtos</option>
+                    </select>
+                </div>
+            </div>
+            <div id="mode-filters-section">
+                <h4>Filtro por Modo</h4>
+                <div id="filters-container"></div>
+            </div>
 
-            <div class="slider-container"><label for="thickness-slider" class="slider-label">Proporção da Espessura (Linhas)</label><input type="range" id="thickness-slider" min="0.1" max="3" value="1" step="0.1"></div>
-            <div class="slider-container"><label for="marker-radius-slider" class="slider-label">Tamanho do Ponto (Locais)</label><input type="range" id="marker-radius-slider" min="1" max="20" value="8" step="1"></div>
+            <div id="sliders-section">
+                <h4>Ajustes Visuais</h4>
+                <label for="thickness-slider">Espessura das Linhas</label>
+                <input type="range" id="thickness-slider" min="0.1" max="3" step="0.1" value="1">
+                <label for="marker-radius-slider">Tamanho dos Pontos</label>
+                <input type="range" id="marker-radius-slider" min="1" max="15" step="1" value="5">
+            </div>
+
+            <button id="highlights-button" class="action-button" disabled>Mostrar Highlights</button>
         </div>
-        <div class="controls-section filter-controls">
-            <h3>3. Filtros por Modo de Transporte</h3>
-            <div id="filters-container"><p style="font-size: 14px; color: #666;">Os filtros aparecerão aqui.</p></div>
-        </div>
-        
-        <div id="status">Carregue os três arquivos para começar.</div>
     </div>
     
     <div id="map-container">
         <div id="map"></div>
-        <div id="highlights-panel">
-            <div class="highlights-header">
-                <h4>Highlights</h4>
-                <button class="close-button" id="close-highlights">&times;</button>
-            </div>
-            <div class="highlights-content" id="highlights-content-body"><p>Os cálculos aparecerão aqui.</p></div>
-        </div>
     </div>
     
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <div id="highlights-panel" class="panel">
+        <button id="close-highlights" class="close-button">&times;</button>
+        <h2>Highlights</h2>
+        <div id="highlights-content-body"></div>
+    </div>
+
     <script src="Script.js"></script>
 </body>
 </html>
