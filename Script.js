@@ -1,4 +1,4 @@
-// Versão Definitiva - Adicionado Custo por Rota - 19/08/2025
+// Versão com Lógica de Custo e Desconto por Produto - 21/08/2025
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Seleção de todos os elementos do DOM ---
     const flowsFileInput = document.getElementById('flows-file');
@@ -40,7 +40,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
-    // Funções de leitura de arquivo
     const readXlsxFile = (file) => {
         return new Promise((resolve, reject) => {
             if (!file) return reject("Nenhum arquivo fornecido.");
@@ -71,7 +70,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // Funções para lidar com o carregamento de cada arquivo
     const handleFlowsFile = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
@@ -116,7 +114,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Função principal que processa os dados
     const processDataAndCreateLayers = () => {
         if (!flowsData || !locationsData || !lanesData) {
             statusDiv.textContent = 'Erro: Nem todos os arquivos foram carregados corretamente.';
@@ -127,39 +124,74 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setTimeout(() => {
             statusDiv.textContent = 'Passo 1/5: Agregando dados...';
-            const aggregated = flowsData
+            
+            const processedFlows = {};
+            flowsData
                 .filter(row => String(row.triggeringEvent).trim().toLowerCase() === 'verdadeiro')
-                .reduce((acc, row) => {
-                    const originId = String(row['triggeringEventOriginLocationId']).trim();
-                    const destinationId = String(row['triggeringEventDestinationLocationId']).trim();
-                    const key = `${originId}->${destinationId}`;
-                    if (!acc[key]) acc[key] = { origin: originId, destination: destinationId, volume: 0, materials: {} };
-                    
-                    const quantity = parseFloat(String(row['triggeringEventQuantity']).replace(',', '.')) || 0;
+                .forEach(row => {
+                    const origin = String(row['triggeringEventOriginLocationId']).trim();
+                    const destination = String(row['triggeringEventDestinationLocationId']).trim();
                     const material = String(row['referenceMaterialId']).trim() || 'Desconhecido';
-                    
-                    acc[key].volume += quantity;
-                    if (!acc[key].materials[material]) acc[key].materials[material] = 0;
-                    acc[key].materials[material] += quantity;
-                    return acc;
-            }, {});
-            finalFlowsForAnalysis = Object.values(aggregated);
+                    const key = `${origin}->${destination}->${material}`;
+                    const dreLine = String(row['dreLineType']).trim().toLowerCase();
+
+                    const quantity = parseFloat(String(row['triggeringEventQuantity']).replace(',', '.')) || 0;
+                    const value = parseFloat(String(row['triggeringEventValue']).replace(',', '.')) || 0;
+
+                    if (!processedFlows[key]) {
+                        processedFlows[key] = {
+                            origin: origin,
+                            destination: destination,
+                            material: material,
+                            quantity: quantity, // Pega a quantidade apenas da primeira ocorrência
+                            baseValue: 0,
+                            discountValue: 0
+                        };
+                    }
+
+                    if (dreLine.includes('cost')) {
+                        processedFlows[key].baseValue += value;
+                    } else if (dreLine.includes('taxes')) {
+                        processedFlows[key].discountValue += value; // Soma o valor negativo do desconto
+                    }
+                });
+            
+            const aggregatedByRoute = {};
+            Object.values(processedFlows).forEach(flow => {
+                const routeKey = `${flow.origin}->${flow.destination}`;
+                if (!aggregatedByRoute[routeKey]) {
+                    aggregatedByRoute[routeKey] = {
+                        origin: flow.origin,
+                        destination: flow.destination,
+                        volume: 0,
+                        totalBaseValue: 0,
+                        totalDiscountValue: 0,
+                        materials: {}
+                    };
+                }
+                const route = aggregatedByRoute[routeKey];
+                route.volume += flow.quantity;
+                route.totalBaseValue += flow.baseValue;
+                route.totalDiscountValue += flow.discountValue;
+
+                if (!route.materials[flow.material]) {
+                    route.materials[flow.material] = 0;
+                }
+                route.materials[flow.material] += flow.quantity;
+            });
+            finalFlowsForAnalysis = Object.values(aggregatedByRoute);
             
             statusDiv.textContent = 'Passo 2/5: Processando localizações e trechos...';
-            // --- INÍCIO DA MODIFICAÇÃO: Armazena modo de transporte E custo ---
             const transportModeMap = lanesData.reduce((acc, row) => {
                 const origin = String(row['Origin Location Id']).trim();
                 const dest = String(row['Destination Location Id']).trim();
                 if (origin && dest) {
                     acc[`${origin}->${dest}`] = {
-                        mode: String(row['Trecho']).trim(),
-                        cost: parseFloat(String(row['Unit Transfer Cost']).replace(',', '.')) || 0
+                        mode: String(row['Trecho']).trim()
                     };
                 }
                 return acc;
             }, {});
-            // --- FIM DA MODIFICAÇÃO ---
-
             locationInfo = locationsData.reduce((acc, row) => {
                 const locId = String(row['Location Id']).trim();
                 if (locId) acc[locId] = { lat: row['Latitude'], lon: row['Longitude'], city: row['City'], state: row['State'], country: String(row['Country']).trim() };
@@ -177,29 +209,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const uniqueProducts = new Set();
             
             finalFlowsForAnalysis.forEach(flow => {
-                Object.keys(flow.materials).forEach(material => {
-                    if (material !== 'Desconhecido') uniqueProducts.add(material);
-                });
-
+                Object.keys(flow.materials).forEach(material => { if (material !== 'Desconhecido') uniqueProducts.add(material); });
                 const originCoords = locationCoords[flow.origin];
                 const destCoords = locationCoords[flow.destination];
                 if (originCoords && destCoords) {
-                    // --- INÍCIO DA MODIFICAÇÃO: Recupera objeto com modo e custo ---
-                    const laneInfo = transportModeMap[`${flow.origin}->${flow.destination}`] || { mode: "Default", cost: 0 };
+                    const laneInfo = transportModeMap[`${flow.origin}->${flow.destination}`] || { mode: "Default" };
                     const transportMode = laneInfo.mode;
                     uniqueModes.add(transportMode);
-                    // --- FIM DA MODIFICAÇÃO ---
-
                     const color = transportModeColorMap[transportMode] || transportModeColorMap["Default"];
-                    const polyline = L.polyline([originCoords, destCoords], { color, opacity: 0.7 });
+                    const polyline = L.polyline([originCoords, destCoords], { color: color, opacity: 0.7 });
                     
                     const originCountry = locationInfo[flow.origin]?.country;
                     const destCountry = locationInfo[flow.destination]?.country;
                     let marketType = (originCountry === 'Brasil' && destCountry === 'Brasil') ? 'mi' : 'me';
 
-                    // --- INÍCIO DA MODIFICAÇÃO: Adiciona o custo ao objeto de dados do fluxo ---
-                    polyline.flowData = { ...flow, transportMode, market: marketType, unitCost: laneInfo.cost };
-                    // --- FIM DA MODIFICAÇÃO ---
+                    polyline.flowData = { ...flow, transportMode, market: marketType };
                     allPolylines.push(polyline);
                 }
             });
@@ -228,7 +252,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 10);
     };
 
-    // Função que atualiza a visualização do mapa
     const updateMapView = () => {
         statusDiv.textContent = 'Atualizando visualização...';
         const geoFilter = document.querySelector('input[name="geo-filter"]:checked').value;
@@ -243,15 +266,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const visiblePolylines = allPolylines.filter(p => {
             const marketMatch = (geoFilter === 'all') || (p.flowData.market === geoFilter);
-            
             let productMatch = false;
-            if (selectAllProducts) {
-                productMatch = true;
-            } else if (selectedProducts.length > 0 && p.flowData.materials) {
-                productMatch = selectedProducts.some(product => p.flowData.materials[product]);
-            } else if (selectedProducts.length === 0) {
-                productMatch = false; 
-            }
+            if (selectAllProducts) productMatch = true;
+            else if (selectedProducts.length > 0 && p.flowData.materials) productMatch = selectedProducts.some(product => p.flowData.materials[product]);
+            else if (selectedProducts.length === 0) productMatch = false; 
             return marketMatch && productMatch;
         });
 
@@ -270,19 +288,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 p.setStyle({ weight });
 
-                // --- INÍCIO DA MODIFICAÇÃO: Adiciona custo ao popup da rota ---
                 const flow = p.flowData;
                 const formattedVolume = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(flow.volume);
                 
-                const unitCost = flow.unitCost || 0;
-                const totalCost = unitCost * flow.volume;
-                const formattedUnitCost = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(unitCost);
-                const formattedTotalCost = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalCost);
+                const formattedBaseValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.totalBaseValue);
+                const formattedDiscountValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.totalDiscountValue);
+                const finalValue = flow.totalBaseValue + flow.totalDiscountValue;
+                const formattedFinalValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(finalValue);
 
                 const sortedMaterials = Object.entries(flow.materials).sort(([, a], [, b]) => b - a);
                 let materialsHTML = '<ul style="margin: 5px 0 0 0; padding-left: 20px; max-height: 100px; overflow-y: auto;">';
                 if (sortedMaterials.length > 0) {
-                    sortedMaterials.forEach(([name, vol]) => { materialsHTML += `<li>${name}: ${new Intl.NumberFormat('pt-BR').format(vol)}</li>`; });
+                    sortedMaterials.forEach(([name, vol]) => { materialsHTML += `<li>${name}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`; });
                 } else {
                     materialsHTML += '<li>Nenhum material detalhado.</li>';
                 }
@@ -294,16 +311,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     <b>Para:</b> ${flow.destination}<br>
                     <hr style="margin: 4px 0;">
                     <b>Volume Total:</b> ${formattedVolume}<br>
-                    <b>Custo Unitário:</b> ${formattedUnitCost}<br>
-                    <b>Custo Total:</b> ${formattedTotalCost}<br>
+                    <b>Valor Original (Custo):</b> ${formattedBaseValue}<br>
+                    <b>Desconto (Taxas):</b> ${formattedDiscountValue}<br>
+                    <b>Valor Final:</b> ${formattedFinalValue}<br>
                     <hr style="margin: 4px 0;">
                     <b>Materiais:</b>${materialsHTML}
                 `;
                 p.bindPopup(popupContent);
-                // --- FIM DA MODIFICAÇÃO ---
 
-                if (layerGroups[p.flowData.transportMode]) {
-                    layerGroups[p.flowData.transportMode].addLayer(p);
+                if (layerGroups[flow.transportMode]) {
+                    layerGroups[flow.transportMode].addLayer(p);
                 }
             });
             statusDiv.textContent = `Visualização atualizada. ${visiblePolylines.length} fluxos exibidos.`;
@@ -325,8 +342,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
     
-    // Demais funções (setupProductFilters, setupModeFilters, onMarkerClick, etc.) continuam aqui sem alterações
-    // ...
     const setupProductFilters = (products) => {
         productFilterContainer.innerHTML = '';
         const allDiv = document.createElement('div');
@@ -352,6 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateMapView();
         });
     };
+    
     const setupModeFilters = (modes) => {
         filtersContainer.innerHTML = '';
         layerGroups = {};
@@ -365,12 +381,14 @@ document.addEventListener('DOMContentLoaded', () => {
             filtersContainer.appendChild(filterDiv);
         });
     };
+
     const onMarkerClick = (e) => {
         const clickedLocationId = e.target.locationId;
         const outgoing = {};
         const incoming = {};
         let totalOutgoingVolume = 0;
         let totalIncomingVolume = 0;
+
         finalFlowsForAnalysis.forEach(flow => {
             if (flow.origin === clickedLocationId) {
                 totalOutgoingVolume += flow.volume;
@@ -387,23 +405,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+
         let popupContent = `<div class="location-popup"><b>Resumo de ${clickedLocationId}</b><br>`;
         popupContent += `<b style="color: #c0392b;">Total Saídas:</b> ${new Intl.NumberFormat('pt-BR').format(totalOutgoingVolume.toFixed(2))}<br>`;
         popupContent += `<b style="color: #27ae60;">Total Entradas:</b> ${new Intl.NumberFormat('pt-BR').format(totalIncomingVolume.toFixed(2))}`;
+        
         popupContent += '<h4>SAÍDAS</h4>';
         if (Object.keys(outgoing).length > 0) {
             popupContent += '<ul>';
-            Object.entries(outgoing).forEach(([mat, vol]) => {
+            Object.entries(outgoing).sort(([,a],[,b]) => b-a).forEach(([mat, vol]) => {
                 popupContent += `<li>${mat}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`;
             });
             popupContent += '</ul>';
         } else {
             popupContent += '<p>Nenhum fluxo de saída registrado.</p>';
         }
+
         popupContent += '<h4>ENTRADAS</h4>';
         if (Object.keys(incoming).length > 0) {
             popupContent += '<ul>';
-            Object.entries(incoming).forEach(([mat, vol]) => {
+            Object.entries(incoming).sort(([,a],[,b]) => b-a).forEach(([mat, vol]) => {
                 popupContent += `<li>${mat}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`;
             });
             popupContent += '</ul>';
@@ -411,9 +432,14 @@ document.addEventListener('DOMContentLoaded', () => {
             popupContent += '<p>Nenhum fluxo de entrada registrado.</p>';
         }
         popupContent += '</div>';
+
         L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
     };
-    const calculateAndShowHighlights = () => { /* Sua lógica de highlights aqui */ };
+    
+    const calculateAndShowHighlights = () => {
+        highlightsContentBody.innerHTML = '<p>Funcionalidade de Highlights a ser implementada.</p>';
+    };
+    
     const getLocationGroup = (locationId) => {
         const id = locationId.toUpperCase();
         if (id.includes('CLIENTE') || id.includes('CLI')) return 'Cliente';
@@ -427,7 +453,10 @@ document.addEventListener('DOMContentLoaded', () => {
     locationsFileInput.addEventListener('change', handleLocationsFile);
     lanesFileInput.addEventListener('change', handleLanesFile);
     runButton.addEventListener('click', processDataAndCreateLayers);
-    highlightsButton.addEventListener('click', () => highlightsPanel.classList.toggle('visible'));
+    highlightsButton.addEventListener('click', () => {
+        calculateAndShowHighlights();
+        highlightsPanel.classList.toggle('visible');
+    });
     closeHighlightsButton.addEventListener('click', () => highlightsPanel.classList.remove('visible'));
     document.querySelectorAll('input[name="geo-filter"]').forEach(radio => radio.addEventListener('change', updateMapView));
     thicknessSlider.addEventListener('input', updateMapView);
