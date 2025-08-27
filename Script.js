@@ -1,4 +1,4 @@
-// Versão Final com Popup Detalhado por Grupo de Incentivo - Teste - 22/08/2025
+// Versão Definitiva - Correção do NaN no Popup de Localização - 22/08/2025
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Seleção de todos os elementos do DOM ---
     const flowsFileInput = document.getElementById('flows-file');
@@ -287,7 +287,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const flow = p.flowData;
                 let popupContent = `<b>Modo:</b> ${flow.transportMode}<br><b>De:</b> ${flow.origin}<br><b>Para:</b> ${flow.destination}`;
                 
-                // Função auxiliar para criar a lista de materiais
                 const createMaterialsList = (materials) => {
                     let html = '<ul class="materials-list">';
                     const sortedMaterials = Object.entries(materials).sort(([,a],[,b]) => b.quantity - a.quantity);
@@ -298,7 +297,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     return html;
                 };
 
-                // Seção SEM Incentivo
                 if (flow.withoutIncentive.volume > 0) {
                     const unitValue = flow.withoutIncentive.value / flow.withoutIncentive.volume;
                     popupContent += `
@@ -311,7 +309,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>`;
                 }
 
-                // Seção COM Incentivo
                 if (flow.withIncentive.volume > 0) {
                     const unitValue = flow.withIncentive.value / flow.withIncentive.volume;
                      popupContent += `
@@ -389,6 +386,8 @@ document.addEventListener('DOMContentLoaded', () => {
             filtersContainer.appendChild(filterDiv);
         });
     };
+
+    // --- INÍCIO DA MODIFICAÇÃO: Correção do cálculo de volume total ---
     const onMarkerClick = (e) => {
         const clickedLocationId = e.target.locationId;
         const outgoing = {};
@@ -397,16 +396,19 @@ document.addEventListener('DOMContentLoaded', () => {
         let totalIncomingVolume = 0;
 
         finalFlowsForAnalysis.forEach(flow => {
+            // Usa a variável `totalVolume` que já foi calculada e está no objeto
+            const currentTotalVolume = flow.withIncentive.volume + flow.withoutIncentive.volume;
+
             const allMaterials = {...flow.withIncentive.materials, ...flow.withoutIncentive.materials};
             if (flow.origin === clickedLocationId) {
-                totalOutgoingVolume += flow.totalVolume;
+                totalOutgoingVolume += currentTotalVolume;
                 for (const material in allMaterials) {
                     if (!outgoing[material]) outgoing[material] = 0;
                     outgoing[material] += allMaterials[material].quantity;
                 }
             }
             if (flow.destination === clickedLocationId) {
-                totalIncomingVolume += flow.totalVolume;
+                totalIncomingVolume += currentTotalVolume;
                 for (const material in allMaterials) {
                     if (!incoming[material]) incoming[material] = 0;
                     incoming[material] += allMaterials[material].quantity;
@@ -443,6 +445,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
     };
+    // --- FIM DA MODIFICAÇÃO ---
+
     const calculateAndShowHighlights = () => { highlightsContentBody.innerHTML = '<p>Funcionalidade de Highlights a ser implementada.</p>'; };
     const getLocationGroup = (locationId) => {
         const id = locationId.toUpperCase();
