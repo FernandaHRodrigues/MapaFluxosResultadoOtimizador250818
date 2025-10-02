@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const thicknessSlider = document.getElementById('thickness-slider');
     const markerRadiusSlider = document.getElementById('marker-radius-slider');
     
+    //TESTE
+    
     // --- 2. Variáveis de Estado Global ---
     let flowsData = null, locationsData = null, lanesData = null;
     let allPolylines = [], allMarkers = {}, locationCoords = {}, layerGroups = {}, locationInfo = {};
