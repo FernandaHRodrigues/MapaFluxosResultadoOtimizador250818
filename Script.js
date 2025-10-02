@@ -1,4 +1,4 @@
-// Versão Definitiva - Correção do NaN no Popup de Localização - 22/08/2025
+// Versão Final com Filtro de Origem - 22/08/2025
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Seleção de todos os elementos do DOM ---
     const flowsFileInput = document.getElementById('flows-file');
@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusDiv = document.getElementById('status');
     const filtersContainer = document.getElementById('filters-container');
     const productFilterContainer = document.getElementById('product-filter-container');
+    const originFilterSelect = document.getElementById('origin-filter'); // Novo seletor
     const vizControls = document.querySelector('.visualization-controls');
     const thicknessSlider = document.getElementById('thickness-slider');
     const markerRadiusSlider = document.getElementById('marker-radius-slider');
@@ -137,7 +138,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const quantity = parseFloat(String(row['triggeringEventQuantity']).replace(',', '.')) || 0;
                     const value = parseFloat(String(row['triggeringEventValue']).replace(',', '.')) || 0;
-                    const hasIncentive = dreLine.includes('taxes');
 
                     if (!processedFlows[key]) {
                         processedFlows[key] = {
@@ -145,11 +145,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             destination: destination,
                             material: material,
                             quantity: quantity,
-                            finalValue: 0,
-                            hasIncentive: hasIncentive
+                            baseValue: 0,
+                            discountValue: 0
                         };
                     }
-                    processedFlows[key].finalValue += value;
+
+                    if (dreLine.includes('cost')) {
+                        processedFlows[key].baseValue += value;
+                    } else if (dreLine.includes('taxes')) {
+                        processedFlows[key].discountValue += value;
+                    }
                 });
             
             const aggregatedByRoute = {};
@@ -159,20 +164,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     aggregatedByRoute[routeKey] = {
                         origin: flow.origin,
                         destination: flow.destination,
-                        withIncentive: { volume: 0, value: 0, materials: {} },
-                        withoutIncentive: { volume: 0, value: 0, materials: {} }
+                        volume: 0,
+                        totalBaseValue: 0,
+                        totalDiscountValue: 0,
+                        materials: {}
                     };
                 }
                 const route = aggregatedByRoute[routeKey];
-                const targetGroup = flow.hasIncentive ? route.withIncentive : route.withoutIncentive;
-                
-                targetGroup.volume += flow.quantity;
-                targetGroup.value += flow.finalValue;
-                if (!targetGroup.materials[flow.material]) {
-                    targetGroup.materials[flow.material] = { quantity: 0, value: 0 };
+                route.volume += flow.quantity;
+                route.totalBaseValue += flow.baseValue;
+                route.totalDiscountValue += flow.discountValue;
+
+                if (!route.materials[flow.material]) {
+                    route.materials[flow.material] = 0;
                 }
-                targetGroup.materials[flow.material].quantity += flow.quantity;
-                targetGroup.materials[flow.material].value += flow.finalValue;
+                route.materials[flow.material] += flow.quantity;
             });
             finalFlowsForAnalysis = Object.values(aggregatedByRoute);
             
@@ -180,7 +186,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const transportModeMap = lanesData.reduce((acc, row) => {
                 const origin = String(row['Origin Location Id']).trim();
                 const dest = String(row['Destination Location Id']).trim();
-                if (origin && dest) acc[`${origin}->${dest}`] = { mode: String(row['Trecho']).trim() };
+                if (origin && dest) {
+                    acc[`${origin}->${dest}`] = {
+                        mode: String(row['Trecho']).trim()
+                    };
+                }
                 return acc;
             }, {});
             locationInfo = locationsData.reduce((acc, row) => {
@@ -198,11 +208,11 @@ document.addEventListener('DOMContentLoaded', () => {
             allMarkers = {};
             const uniqueModes = new Set();
             const uniqueProducts = new Set();
+            const uniqueOrigins = new Set();
             
             finalFlowsForAnalysis.forEach(flow => {
-                const allMaterials = {...flow.withIncentive.materials, ...flow.withoutIncentive.materials };
-                Object.keys(allMaterials).forEach(material => uniqueProducts.add(material));
-
+                uniqueOrigins.add(flow.origin);
+                Object.keys(flow.materials).forEach(material => { if (material !== 'Desconhecido') uniqueProducts.add(material); });
                 const originCoords = locationCoords[flow.origin];
                 const destCoords = locationCoords[flow.destination];
                 if (originCoords && destCoords) {
@@ -216,8 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const destCountry = locationInfo[flow.destination]?.country;
                     let marketType = (originCountry === 'Brasil' && destCountry === 'Brasil') ? 'mi' : 'me';
 
-                    const totalVolume = flow.withIncentive.volume + flow.withoutIncentive.volume;
-                    polyline.flowData = { ...flow, transportMode, market: marketType, totalVolume: totalVolume };
+                    polyline.flowData = { ...flow, transportMode, market: marketType };
                     allPolylines.push(polyline);
                 }
             });
@@ -235,6 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             statusDiv.textContent = 'Passo 4/5: Configurando filtros...';
+            setupOriginFilter(Array.from(uniqueOrigins));
             setupModeFilters(Array.from(uniqueModes));
             setupProductFilters(Array.from(uniqueProducts));
             
@@ -255,73 +265,66 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectedProductsCheckboxes = productFilterContainer.querySelectorAll('input[name="product"]:checked');
         const selectedProducts = Array.from(selectedProductsCheckboxes).map(cb => cb.value);
         const selectAllProducts = selectedProducts.includes('all');
+        const selectedOrigin = originFilterSelect.value;
 
         Object.values(layerGroups).forEach(group => group.clearLayers());
 
         const visiblePolylines = allPolylines.filter(p => {
             const marketMatch = (geoFilter === 'all') || (p.flowData.market === geoFilter);
+            const originMatch = (selectedOrigin === 'all') || (p.flowData.origin === selectedOrigin);
             let productMatch = false;
-            const allMaterialsOnRoute = {...p.flowData.withIncentive.materials, ...p.flowData.withoutIncentive.materials};
-
             if (selectAllProducts) productMatch = true;
-            else if (selectedProducts.length > 0) productMatch = selectedProducts.some(product => allMaterialsOnRoute[product]);
+            else if (selectedProducts.length > 0 && p.flowData.materials) productMatch = selectedProducts.some(product => p.flowData.materials[product]);
             else if (selectedProducts.length === 0) productMatch = false; 
-            return marketMatch && productMatch;
+            return marketMatch && productMatch && originMatch;
         });
 
         if (visiblePolylines.length === 0) {
             statusDiv.textContent = "Nenhum fluxo visível para os filtros selecionados.";
         } else {
-            const volumes = visiblePolylines.map(p => p.flowData.totalVolume).filter(v => v > 0);
+            const volumes = visiblePolylines.map(p => p.flowData.volume).filter(v => v > 0);
             const minVolume = Math.min(...volumes);
             const maxVolume = Math.max(...volumes);
 
             visiblePolylines.forEach(p => {
                 let weight = 3;
                 if (maxVolume > minVolume) {
-                    const normalizedVolume = (p.flowData.totalVolume - minVolume) / (maxVolume - minVolume);
+                    const normalizedVolume = (p.flowData.volume - minVolume) / (maxVolume - minVolume);
                     weight = 2 + (normalizedVolume * 15 * thicknessMultiplier);
                 }
                 p.setStyle({ weight });
 
                 const flow = p.flowData;
-                let popupContent = `<b>Modo:</b> ${flow.transportMode}<br><b>De:</b> ${flow.origin}<br><b>Para:</b> ${flow.destination}`;
-                
-                const createMaterialsList = (materials) => {
-                    let html = '<ul class="materials-list">';
-                    const sortedMaterials = Object.entries(materials).sort(([,a],[,b]) => b.quantity - a.quantity);
-                    sortedMaterials.forEach(([name, data]) => {
-                        html += `<li>${name}: ${new Intl.NumberFormat('pt-BR').format(data.quantity.toFixed(2))}</li>`;
-                    });
-                    html += '</ul>';
-                    return html;
-                };
+                const formattedVolume = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(flow.volume);
+                const formattedBaseValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.totalBaseValue);
+                const formattedDiscountValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.totalDiscountValue);
+                const finalValue = flow.totalBaseValue + flow.totalDiscountValue;
+                const formattedFinalValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(finalValue);
+                const unitValue = flow.volume > 0 ? finalValue / flow.volume : 0;
+                const formattedUnitValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(unitValue);
 
-                if (flow.withoutIncentive.volume > 0) {
-                    const unitValue = flow.withoutIncentive.value / flow.withoutIncentive.volume;
-                    popupContent += `
-                        <div class="popup-section">
-                            <b>Produtos sem Incentivo:</b><br>
-                            - Volume: ${new Intl.NumberFormat('pt-BR').format(flow.withoutIncentive.volume.toFixed(2))}<br>
-                            - Valor Final: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.withoutIncentive.value)}<br>
-                            - <b>Valor Unitário: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(unitValue)}</b>
-                            ${createMaterialsList(flow.withoutIncentive.materials)}
-                        </div>`;
+                const sortedMaterials = Object.entries(flow.materials).sort(([, a], [, b]) => b - a);
+                let materialsHTML = '<ul style="margin: 5px 0 0 0; padding-left: 20px; max-height: 100px; overflow-y: auto;">';
+                if (sortedMaterials.length > 0) {
+                    sortedMaterials.forEach(([name, vol]) => { materialsHTML += `<li>${name}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`; });
+                } else {
+                    materialsHTML += '<li>Nenhum material detalhado.</li>';
                 }
+                materialsHTML += '</ul>';
 
-                if (flow.withIncentive.volume > 0) {
-                    const unitValue = flow.withIncentive.value / flow.withIncentive.volume;
-                     popupContent += `
-                        <div class="popup-section">
-                            <b>Produtos com Incentivo (Taxas):</b><br>
-                            - Volume: ${new Intl.NumberFormat('pt-BR').format(flow.withIncentive.volume.toFixed(2))}<br>
-                            - Valor Final: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.withIncentive.value)}<br>
-                            - <b>Valor Unitário: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(unitValue)}</b>
-                            ${createMaterialsList(flow.withIncentive.materials)}
-                        </div>`;
-                }
-
-                popupContent += `<hr style="margin: 4px 0;"><b>Volume Total na Rota: ${new Intl.NumberFormat('pt-BR').format(flow.totalVolume.toFixed(2))}</b>`;
+                const popupContent = `
+                    <b>Modo:</b> ${flow.transportMode}<br>
+                    <b>De:</b> ${flow.origin}<br>
+                    <b>Para:</b> ${flow.destination}<br>
+                    <hr style="margin: 4px 0;">
+                    <b>Volume Total:</b> ${formattedVolume}<br>
+                    <b>Valor Original (Custo):</b> ${formattedBaseValue}<br>
+                    <b>Desconto (Taxas):</b> ${formattedDiscountValue}<br>
+                    <b>Valor Final:</b> ${formattedFinalValue}<br>
+                    <b>Valor Unitário:</b> ${formattedUnitValue}<br>
+                    <hr style="margin: 4px 0;">
+                    <b>Materiais:</b>${materialsHTML}
+                `;
                 p.bindPopup(popupContent);
 
                 if (layerGroups[flow.transportMode]) {
@@ -347,7 +350,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
     
-    // Demais funções (setupProductFilters, setupModeFilters, onMarkerClick, etc.)
+    const setupOriginFilter = (origins) => {
+        originFilterSelect.innerHTML = '<option value="all">Todas as Origens</option>';
+        origins.sort().forEach(origin => {
+            const option = document.createElement('option');
+            option.value = origin;
+            option.textContent = origin;
+            originFilterSelect.appendChild(option);
+        });
+    };
+
     const setupProductFilters = (products) => {
         productFilterContainer.innerHTML = '';
         const allDiv = document.createElement('div');
@@ -373,6 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateMapView();
         });
     };
+    
     const setupModeFilters = (modes) => {
         filtersContainer.innerHTML = '';
         layerGroups = {};
@@ -387,7 +400,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // --- INÍCIO DA MODIFICAÇÃO: Correção do cálculo de volume total ---
     const onMarkerClick = (e) => {
         const clickedLocationId = e.target.locationId;
         const outgoing = {};
@@ -396,22 +408,18 @@ document.addEventListener('DOMContentLoaded', () => {
         let totalIncomingVolume = 0;
 
         finalFlowsForAnalysis.forEach(flow => {
-            // Usa a variável `totalVolume` que já foi calculada e está no objeto
-            const currentTotalVolume = flow.withIncentive.volume + flow.withoutIncentive.volume;
-
-            const allMaterials = {...flow.withIncentive.materials, ...flow.withoutIncentive.materials};
             if (flow.origin === clickedLocationId) {
-                totalOutgoingVolume += currentTotalVolume;
-                for (const material in allMaterials) {
+                totalOutgoingVolume += flow.volume;
+                for (const material in flow.materials) {
                     if (!outgoing[material]) outgoing[material] = 0;
-                    outgoing[material] += allMaterials[material].quantity;
+                    outgoing[material] += flow.materials[material];
                 }
             }
             if (flow.destination === clickedLocationId) {
-                totalIncomingVolume += currentTotalVolume;
-                for (const material in allMaterials) {
+                totalIncomingVolume += flow.volume;
+                for (const material in flow.materials) {
                     if (!incoming[material]) incoming[material] = 0;
-                    incoming[material] += allMaterials[material].quantity;
+                    incoming[material] += flow.materials[material];
                 }
             }
         });
@@ -445,9 +453,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
     };
-    // --- FIM DA MODIFICAÇÃO ---
-
-    const calculateAndShowHighlights = () => { highlightsContentBody.innerHTML = '<p>Funcionalidade de Highlights a ser implementada.</p>'; };
+    
+    const calculateAndShowHighlights = () => {
+        highlightsContentBody.innerHTML = '<p>Funcionalidade de Highlights a ser implementada.</p>';
+    };
+    
     const getLocationGroup = (locationId) => {
         const id = locationId.toUpperCase();
         if (id.includes('CLIENTE') || id.includes('CLI')) return 'Cliente';
@@ -467,6 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     closeHighlightsButton.addEventListener('click', () => highlightsPanel.classList.remove('visible'));
     document.querySelectorAll('input[name="geo-filter"]').forEach(radio => radio.addEventListener('change', updateMapView));
+    originFilterSelect.addEventListener('change', updateMapView); // Novo evento
     thicknessSlider.addEventListener('input', updateMapView);
     markerRadiusSlider.addEventListener('input', updateMapView);
 });
