@@ -1,4 +1,4 @@
-// Versão Final com Filtro de Origem - 22/08/2025
+// Versão Definitiva - Correção do Mapa e Filtro Múltiplo - 22/08/2025
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Seleção de todos os elementos do DOM ---
     const flowsFileInput = document.getElementById('flows-file');
@@ -12,12 +12,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusDiv = document.getElementById('status');
     const filtersContainer = document.getElementById('filters-container');
     const productFilterContainer = document.getElementById('product-filter-container');
-    const originFilterSelect = document.getElementById('origin-filter'); // Novo seletor
+    const originFilterContainer = document.getElementById('origin-filter-container');
     const vizControls = document.querySelector('.visualization-controls');
     const thicknessSlider = document.getElementById('thickness-slider');
     const markerRadiusSlider = document.getElementById('marker-radius-slider');
-    
-    //TESTE
     
     // --- 2. Variáveis de Estado Global ---
     let flowsData = null, locationsData = null, lanesData = null;
@@ -118,130 +116,72 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const processDataAndCreateLayers = () => {
-        if (!flowsData || !locationsData || !lanesData) {
-            statusDiv.textContent = 'Erro: Nem todos os arquivos foram carregados corretamente.';
-            return;
-        }
-        runButton.disabled = true;
-        highlightsButton.disabled = true;
+        if (!flowsData || !locationsData || !lanesData) return;
+        runButton.disabled = true; highlightsButton.disabled = true;
 
         setTimeout(() => {
             statusDiv.textContent = 'Passo 1/5: Agregando dados...';
-            
             const processedFlows = {};
-            flowsData
-                .filter(row => String(row.triggeringEvent).trim().toLowerCase() === 'verdadeiro')
+            flowsData.filter(row => String(row.triggeringEvent).trim().toLowerCase() === 'verdadeiro')
                 .forEach(row => {
                     const origin = String(row['triggeringEventOriginLocationId']).trim();
                     const destination = String(row['triggeringEventDestinationLocationId']).trim();
                     const material = String(row['referenceMaterialId']).trim() || 'Desconhecido';
                     const key = `${origin}->${destination}->${material}`;
                     const dreLine = String(row['dreLineType']).trim().toLowerCase();
-
                     const quantity = parseFloat(String(row['triggeringEventQuantity']).replace(',', '.')) || 0;
                     const value = parseFloat(String(row['triggeringEventValue']).replace(',', '.')) || 0;
-
                     if (!processedFlows[key]) {
-                        processedFlows[key] = {
-                            origin: origin,
-                            destination: destination,
-                            material: material,
-                            quantity: quantity,
-                            baseValue: 0,
-                            discountValue: 0
-                        };
+                        processedFlows[key] = { origin, destination, material, quantity, baseValue: 0, discountValue: 0 };
                     }
-
-                    if (dreLine.includes('cost')) {
-                        processedFlows[key].baseValue += value;
-                    } else if (dreLine.includes('taxes')) {
-                        processedFlows[key].discountValue += value;
-                    }
+                    if (dreLine.includes('cost')) processedFlows[key].baseValue += value;
+                    else if (dreLine.includes('taxes')) processedFlows[key].discountValue += value;
                 });
             
             const aggregatedByRoute = {};
             Object.values(processedFlows).forEach(flow => {
                 const routeKey = `${flow.origin}->${flow.destination}`;
                 if (!aggregatedByRoute[routeKey]) {
-                    aggregatedByRoute[routeKey] = {
-                        origin: flow.origin,
-                        destination: flow.destination,
-                        volume: 0,
-                        totalBaseValue: 0,
-                        totalDiscountValue: 0,
-                        materials: {}
-                    };
+                    aggregatedByRoute[routeKey] = { origin: flow.origin, destination: flow.destination, volume: 0, totalBaseValue: 0, totalDiscountValue: 0, materials: {} };
                 }
                 const route = aggregatedByRoute[routeKey];
                 route.volume += flow.quantity;
                 route.totalBaseValue += flow.baseValue;
                 route.totalDiscountValue += flow.discountValue;
-
-                if (!route.materials[flow.material]) {
-                    route.materials[flow.material] = 0;
-                }
+                if (!route.materials[flow.material]) route.materials[flow.material] = 0;
                 route.materials[flow.material] += flow.quantity;
             });
             finalFlowsForAnalysis = Object.values(aggregatedByRoute);
             
             statusDiv.textContent = 'Passo 2/5: Processando localizações e trechos...';
-            const transportModeMap = lanesData.reduce((acc, row) => {
-                const origin = String(row['Origin Location Id']).trim();
-                const dest = String(row['Destination Location Id']).trim();
-                if (origin && dest) {
-                    acc[`${origin}->${dest}`] = {
-                        mode: String(row['Trecho']).trim()
-                    };
-                }
-                return acc;
-            }, {});
-            locationInfo = locationsData.reduce((acc, row) => {
-                const locId = String(row['Location Id']).trim();
-                if (locId) acc[locId] = { lat: row['Latitude'], lon: row['Longitude'], country: String(row['Country']).trim() };
-                return acc;
-            }, {});
-            locationCoords = Object.entries(locationInfo).reduce((acc, [id, details]) => {
-                if (details.lat != null && details.lon != null) acc[id] = [parseFloat(details.lat), parseFloat(details.lon)];
-                return acc;
-            }, {});
+            const transportModeMap = lanesData.reduce((acc, row) => { const o = String(row['Origin Location Id']).trim(); const d = String(row['Destination Location Id']).trim(); if(o && d) acc[`${o}->${d}`] = { mode: String(row['Trecho']).trim() }; return acc; }, {});
+            locationInfo = locationsData.reduce((acc, row) => { const id = String(row['Location Id']).trim(); if (id) acc[id] = { lat: row['Latitude'], lon: row['Longitude'], country: String(row['Country']).trim() }; return acc; }, {});
+            locationCoords = Object.entries(locationInfo).reduce((acc, [id, details]) => { if (details.lat != null && details.lon != null) acc[id] = [parseFloat(details.lat), parseFloat(details.lon)]; return acc; }, {});
             
             statusDiv.textContent = 'Passo 3/5: Criando objetos do mapa...';
-            allPolylines = [];
-            allMarkers = {};
-            const uniqueModes = new Set();
-            const uniqueProducts = new Set();
-            const uniqueOrigins = new Set();
+            allPolylines = []; allMarkers = {};
+            const uniqueModes = new Set(), uniqueProducts = new Set(), uniqueOrigins = new Set();
             
             finalFlowsForAnalysis.forEach(flow => {
                 uniqueOrigins.add(flow.origin);
-                Object.keys(flow.materials).forEach(material => { if (material !== 'Desconhecido') uniqueProducts.add(material); });
-                const originCoords = locationCoords[flow.origin];
-                const destCoords = locationCoords[flow.destination];
+                Object.keys(flow.materials).forEach(m => uniqueProducts.add(m));
+                const originCoords = locationCoords[flow.origin], destCoords = locationCoords[flow.destination];
                 if (originCoords && destCoords) {
                     const laneInfo = transportModeMap[`${flow.origin}->${flow.destination}`] || { mode: "Default" };
-                    const transportMode = laneInfo.mode;
-                    uniqueModes.add(transportMode);
-                    const color = transportModeColorMap[transportMode] || transportModeColorMap["Default"];
-                    const polyline = L.polyline([originCoords, destCoords], { color: color, opacity: 0.7 });
-                    
-                    const originCountry = locationInfo[flow.origin]?.country;
-                    const destCountry = locationInfo[flow.destination]?.country;
-                    let marketType = (originCountry === 'Brasil' && destCountry === 'Brasil') ? 'mi' : 'me';
-
-                    polyline.flowData = { ...flow, transportMode, market: marketType };
+                    const polyline = L.polyline([originCoords, destCoords], { color: transportModeColorMap[laneInfo.mode] || transportModeColorMap["Default"], opacity: 0.7 });
+                    const originCountry = locationInfo[flow.origin]?.country, destCountry = locationInfo[flow.destination]?.country;
+                    polyline.flowData = { ...flow, transportMode: laneInfo.mode, market: (originCountry === 'Brasil' && destCountry === 'Brasil') ? 'mi' : 'me' };
                     allPolylines.push(polyline);
+                    uniqueModes.add(laneInfo.mode);
                 }
             });
             
-            const allLocations = [...new Set(finalFlowsForAnalysis.flatMap(f => [f.origin, f.destination]))];
-            allLocations.forEach(locId => {
+            [...new Set(finalFlowsForAnalysis.flatMap(f => [f.origin, f.destination]))].forEach(locId => {
                 if (locationCoords[locId]) {
-                    const group = getLocationGroup(locId);
-                    const color = markerColorMap[group] || markerColorMap["Default"];
-                    const circleMarker = L.circleMarker(locationCoords[locId], { fillColor: color, color: "#000", weight: 1.5, opacity: 1, fillOpacity: 0.9, radius: 8 });
-                    circleMarker.locationId = locId;
-                    circleMarker.on('click', onMarkerClick);
-                    allMarkers[locId] = circleMarker;
+                    const marker = L.circleMarker(locationCoords[locId], { fillColor: markerColorMap[getLocationGroup(locId)] || markerColorMap["Default"], color: "#000", weight: 1.5, opacity: 1, fillOpacity: 0.9, radius: 8 });
+                    marker.locationId = locId;
+                    marker.on('click', onMarkerClick);
+                    allMarkers[locId] = marker;
                 }
             });
 
@@ -253,8 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
             statusDiv.textContent = 'Passo 5/5: Desenhando mapa...';
             vizControls.style.display = 'block';
             updateMapView();
-            runButton.disabled = false;
-            highlightsButton.disabled = false;
+            runButton.disabled = false; highlightsButton.disabled = false;
         }, 10);
     };
 
@@ -264,25 +203,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const thicknessMultiplier = parseFloat(thicknessSlider.value);
         const markerRadius = parseFloat(markerRadiusSlider.value);
 
-        const selectedProductsCheckboxes = productFilterContainer.querySelectorAll('input[name="product"]:checked');
-        const selectedProducts = Array.from(selectedProductsCheckboxes).map(cb => cb.value);
+        const selectedProducts = Array.from(productFilterContainer.querySelectorAll('input[name="product"]:checked')).map(cb => cb.value);
         const selectAllProducts = selectedProducts.includes('all');
-        const selectedOrigin = originFilterSelect.value;
+        const selectedOrigins = Array.from(originFilterContainer.querySelectorAll('input[name="origin"]:checked')).map(cb => cb.value);
+        const selectAllOrigins = selectedOrigins.includes('all');
 
         Object.values(layerGroups).forEach(group => group.clearLayers());
 
         const visiblePolylines = allPolylines.filter(p => {
             const marketMatch = (geoFilter === 'all') || (p.flowData.market === geoFilter);
-            const originMatch = (selectedOrigin === 'all') || (p.flowData.origin === selectedOrigin);
-            let productMatch = false;
-            if (selectAllProducts) productMatch = true;
-            else if (selectedProducts.length > 0 && p.flowData.materials) productMatch = selectedProducts.some(product => p.flowData.materials[product]);
-            else if (selectedProducts.length === 0) productMatch = false; 
+            const originMatch = selectAllOrigins || selectedOrigins.includes(p.flowData.origin);
+            let productMatch = selectAllProducts || (selectedProducts.length > 0 && selectedProducts.some(product => p.flowData.materials[product]));
             return marketMatch && productMatch && originMatch;
         });
 
         if (visiblePolylines.length === 0) {
             statusDiv.textContent = "Nenhum fluxo visível para os filtros selecionados.";
+            // Limpa as camadas de modo para que as linhas desapareçam
+             Object.values(layerGroups).forEach(group => map.removeLayer(group));
         } else {
             const volumes = visiblePolylines.map(p => p.flowData.volume).filter(v => v > 0);
             const minVolume = Math.min(...volumes);
@@ -290,125 +228,76 @@ document.addEventListener('DOMContentLoaded', () => {
 
             visiblePolylines.forEach(p => {
                 let weight = 3;
-                if (maxVolume > minVolume) {
-                    const normalizedVolume = (p.flowData.volume - minVolume) / (maxVolume - minVolume);
-                    weight = 2 + (normalizedVolume * 15 * thicknessMultiplier);
-                }
+                if (maxVolume > minVolume) weight = 2 + (((p.flowData.volume - minVolume) / (maxVolume - minVolume)) * 15 * thicknessMultiplier);
                 p.setStyle({ weight });
-
+                
                 const flow = p.flowData;
-                const formattedVolume = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(flow.volume);
-                const formattedBaseValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.totalBaseValue);
-                const formattedDiscountValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.totalDiscountValue);
                 const finalValue = flow.totalBaseValue + flow.totalDiscountValue;
-                const formattedFinalValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(finalValue);
                 const unitValue = flow.volume > 0 ? finalValue / flow.volume : 0;
-                const formattedUnitValue = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(unitValue);
+                const materialsHTML = Object.entries(flow.materials).sort(([, a], [, b]) => b - a).map(([name, vol]) => `<li>${name}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`).join('');
+                p.bindPopup(`<b>Modo:</b> ${flow.transportMode}<br><b>De:</b> ${flow.origin}<br><b>Para:</b> ${flow.destination}<hr><b>Volume Total:</b> ${new Intl.NumberFormat('pt-BR').format(flow.volume.toFixed(2))}<br><b>Valor Original (Custo):</b> ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.totalBaseValue)}<br><b>Desconto (Taxas):</b> ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(flow.totalDiscountValue)}<br><b>Valor Final:</b> ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(finalValue)}<br><b>Valor Unitário:</b> ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(unitValue)}<hr><b>Materiais:</b><ul style="margin: 5px 0 0 0; padding-left: 20px; max-height: 100px; overflow-y: auto;">${materialsHTML}</ul>`);
 
-                const sortedMaterials = Object.entries(flow.materials).sort(([, a], [, b]) => b - a);
-                let materialsHTML = '<ul style="margin: 5px 0 0 0; padding-left: 20px; max-height: 100px; overflow-y: auto;">';
-                if (sortedMaterials.length > 0) {
-                    sortedMaterials.forEach(([name, vol]) => { materialsHTML += `<li>${name}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`; });
-                } else {
-                    materialsHTML += '<li>Nenhum material detalhado.</li>';
-                }
-                materialsHTML += '</ul>';
-
-                const popupContent = `
-                    <b>Modo:</b> ${flow.transportMode}<br>
-                    <b>De:</b> ${flow.origin}<br>
-                    <b>Para:</b> ${flow.destination}<br>
-                    <hr style="margin: 4px 0;">
-                    <b>Volume Total:</b> ${formattedVolume}<br>
-                    <b>Valor Original (Custo):</b> ${formattedBaseValue}<br>
-                    <b>Desconto (Taxas):</b> ${formattedDiscountValue}<br>
-                    <b>Valor Final:</b> ${formattedFinalValue}<br>
-                    <b>Valor Unitário:</b> ${formattedUnitValue}<br>
-                    <hr style="margin: 4px 0;">
-                    <b>Materiais:</b>${materialsHTML}
-                `;
-                p.bindPopup(popupContent);
-
-                if (layerGroups[flow.transportMode]) {
-                    layerGroups[flow.transportMode].addLayer(p);
-                }
+                if (layerGroups[flow.transportMode]) layerGroups[flow.transportMode].addLayer(p);
             });
             statusDiv.textContent = `Visualização atualizada. ${visiblePolylines.length} fluxos exibidos.`;
         }
         
         markersLayer.clearLayers();
-        Object.values(allMarkers).forEach(marker => {
-            marker.setRadius(markerRadius);
-            markersLayer.addLayer(marker);
-        });
-
-        const modeCheckboxes = filtersContainer.querySelectorAll('input[type="checkbox"]');
-        modeCheckboxes.forEach(cb => {
-            if (cb.checked && layerGroups[cb.name]) {
-                map.addLayer(layerGroups[cb.name]);
-            } else if (!cb.checked && layerGroups[cb.name]) {
-                map.removeLayer(layerGroups[cb.name]);
-            }
+        Object.values(allMarkers).forEach(marker => { marker.setRadius(markerRadius); markersLayer.addLayer(marker); });
+        
+        document.querySelectorAll('#filters-container input[type="checkbox"]').forEach(cb => { 
+            if (cb.checked && layerGroups[cb.name]) map.addLayer(layerGroups[cb.name]); 
+            else if (!cb.checked && layerGroups[cb.name]) map.removeLayer(layerGroups[cb.name]); 
         });
     };
     
-    const setupOriginFilter = (origins) => {
-        originFilterSelect.innerHTML = '<option value="all">Todas as Origens</option>';
-        origins.sort().forEach(origin => {
-            const option = document.createElement('option');
-            option.value = origin;
-            option.textContent = origin;
-            originFilterSelect.appendChild(option);
+    const createCheckboxFilter = (container, items, name, onchange) => {
+        container.innerHTML = '';
+        const allDiv = document.createElement('div');
+        allDiv.innerHTML = `<label style="font-weight: bold;"><input type="checkbox" name="${name}" value="all" checked> Selecionar Todos</label>`;
+        container.appendChild(allDiv);
+
+        const allCheckbox = allDiv.querySelector('input');
+        const itemCheckboxes = [];
+
+        items.sort().forEach(item => {
+            const itemDiv = document.createElement('div');
+            itemDiv.innerHTML = `<label><input type="checkbox" name="${name}" value="${item}" checked> ${item}</label>`;
+            const checkbox = itemDiv.querySelector('input');
+            itemCheckboxes.push(checkbox);
+            
+            checkbox.addEventListener('change', () => {
+                allCheckbox.checked = itemCheckboxes.every(cb => cb.checked);
+                onchange();
+            });
+            container.appendChild(itemDiv);
+        });
+
+        allCheckbox.addEventListener('change', () => {
+            itemCheckboxes.forEach(cb => { cb.checked = allCheckbox.checked; });
+            onchange();
         });
     };
 
-    const setupProductFilters = (products) => {
-        productFilterContainer.innerHTML = '';
-        const allDiv = document.createElement('div');
-        allDiv.innerHTML = `<label style="font-weight: bold;"><input type="checkbox" name="product" value="all" checked> Selecionar Todos</label>`;
-        productFilterContainer.appendChild(allDiv);
-        const allCheckbox = allDiv.querySelector('input');
-        const productCheckboxes = [];
-        products.sort().forEach(product => {
-            const productDiv = document.createElement('div');
-            productDiv.innerHTML = `<label><input type="checkbox" name="product" value="${product}" checked> ${product}</label>`;
-            const checkbox = productDiv.querySelector('input');
-            productCheckboxes.push(checkbox);
-            checkbox.addEventListener('change', () => {
-                allCheckbox.checked = productCheckboxes.every(cb => cb.checked);
-                updateMapView();
-            });
-            productFilterContainer.appendChild(productDiv);
-        });
-        allCheckbox.addEventListener('change', () => {
-            productCheckboxes.forEach(cb => {
-                cb.checked = allCheckbox.checked;
-            });
-            updateMapView();
-        });
-    };
+    const setupOriginFilter = (origins) => createCheckboxFilter(originFilterContainer, origins, 'origin', updateMapView);
+    const setupProductFilters = (products) => createCheckboxFilter(productFilterContainer, products, 'product', updateMapView);
     
     const setupModeFilters = (modes) => {
-        filtersContainer.innerHTML = '';
-        layerGroups = {};
+        filtersContainer.innerHTML = ''; layerGroups = {};
         modes.sort().forEach(mode => {
             layerGroups[mode] = L.layerGroup();
             const color = transportModeColorMap[mode] || transportModeColorMap["Default"];
             const filterDiv = document.createElement('div');
             filterDiv.innerHTML = `<label><input type="checkbox" name="${mode}" checked> <span class="color-box" style="background-color:${color};"></span> ${mode}</label>`;
-            const checkbox = filterDiv.querySelector('input');
-            checkbox.addEventListener('change', updateMapView);
+            filterDiv.querySelector('input').addEventListener('change', updateMapView);
             filtersContainer.appendChild(filterDiv);
         });
     };
 
     const onMarkerClick = (e) => {
         const clickedLocationId = e.target.locationId;
-        const outgoing = {};
-        const incoming = {};
-        let totalOutgoingVolume = 0;
-        let totalIncomingVolume = 0;
-
+        const outgoing = {}, incoming = {};
+        let totalOutgoingVolume = 0, totalIncomingVolume = 0;
         finalFlowsForAnalysis.forEach(flow => {
             if (flow.origin === clickedLocationId) {
                 totalOutgoingVolume += flow.volume;
@@ -425,61 +314,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
-
-        let popupContent = `<div class="location-popup"><b>Resumo de ${clickedLocationId}</b><br>`;
-        popupContent += `<b style="color: #c0392b;">Total Saídas:</b> ${new Intl.NumberFormat('pt-BR').format(totalOutgoingVolume.toFixed(2))}<br>`;
-        popupContent += `<b style="color: #27ae60;">Total Entradas:</b> ${new Intl.NumberFormat('pt-BR').format(totalIncomingVolume.toFixed(2))}`;
-        
+        let popupContent = `<div class="location-popup"><b>Resumo de ${clickedLocationId}</b><br><b style="color: #c0392b;">Total Saídas:</b> ${new Intl.NumberFormat('pt-BR').format(totalOutgoingVolume.toFixed(2))}<br><b style="color: #27ae60;">Total Entradas:</b> ${new Intl.NumberFormat('pt-BR').format(totalIncomingVolume.toFixed(2))}`;
         popupContent += '<h4>SAÍDAS</h4>';
-        if (Object.keys(outgoing).length > 0) {
-            popupContent += '<ul>';
-            Object.entries(outgoing).sort(([,a],[,b]) => b-a).forEach(([mat, vol]) => {
-                popupContent += `<li>${mat}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`;
-            });
-            popupContent += '</ul>';
-        } else {
-            popupContent += '<p>Nenhum fluxo de saída registrado.</p>';
-        }
-
+        if (Object.keys(outgoing).length > 0) { popupContent += '<ul>'; Object.entries(outgoing).sort(([,a],[,b]) => b-a).forEach(([mat, vol]) => { popupContent += `<li>${mat}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`; }); popupContent += '</ul>'; } else { popupContent += '<p>Nenhum fluxo de saída registrado.</p>'; }
         popupContent += '<h4>ENTRADAS</h4>';
-        if (Object.keys(incoming).length > 0) {
-            popupContent += '<ul>';
-            Object.entries(incoming).sort(([,a],[,b]) => b-a).forEach(([mat, vol]) => {
-                popupContent += `<li>${mat}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`;
-            });
-            popupContent += '</ul>';
-        } else {
-            popupContent += '<p>Nenhum fluxo de entrada registrado.</p>';
-        }
+        if (Object.keys(incoming).length > 0) { popupContent += '<ul>'; Object.entries(incoming).sort(([,a],[,b]) => b-a).forEach(([mat, vol]) => { popupContent += `<li>${mat}: ${new Intl.NumberFormat('pt-BR').format(vol.toFixed(2))}</li>`; }); popupContent += '</ul>'; } else { popupContent += '<p>Nenhum fluxo de entrada registrado.</p>'; }
         popupContent += '</div>';
-
         L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
     };
     
-    const calculateAndShowHighlights = () => {
-        highlightsContentBody.innerHTML = '<p>Funcionalidade de Highlights a ser implementada.</p>';
-    };
-    
-    const getLocationGroup = (locationId) => {
-        const id = locationId.toUpperCase();
-        if (id.includes('CLIENTE') || id.includes('CLI')) return 'Cliente';
-        if (id.includes('TERCEIRO') || id.includes('TER')) return 'Terceiro';
-        if (id.startsWith('USI') || id.includes('USINA') || id.includes('PROP')) return 'Proprio';
-        return "Default";
-    };
+    const calculateAndShowHighlights = () => { highlightsContentBody.innerHTML = '<p>Funcionalidade de Highlights a ser implementada.</p>'; };
+    const getLocationGroup = (locationId) => { const id = locationId.toUpperCase(); if (id.includes('CLIENTE') || id.includes('CLI')) return 'Cliente'; if (id.includes('TERCEIRO') || id.includes('TER')) return 'Terceiro'; if (id.startsWith('USI') || id.includes('USINA') || id.includes('PROP')) return 'Proprio'; return "Default"; };
 
     // --- 5. Vinculação Final dos Eventos ---
     flowsFileInput.addEventListener('change', handleFlowsFile);
     locationsFileInput.addEventListener('change', handleLocationsFile);
     lanesFileInput.addEventListener('change', handleLanesFile);
     runButton.addEventListener('click', processDataAndCreateLayers);
-    highlightsButton.addEventListener('click', () => {
-        calculateAndShowHighlights();
-        highlightsPanel.classList.toggle('visible');
-    });
+    highlightsButton.addEventListener('click', () => { calculateAndShowHighlights(); highlightsPanel.classList.toggle('visible'); });
     closeHighlightsButton.addEventListener('click', () => highlightsPanel.classList.remove('visible'));
     document.querySelectorAll('input[name="geo-filter"]').forEach(radio => radio.addEventListener('change', updateMapView));
-    originFilterSelect.addEventListener('change', updateMapView); // Novo evento
     thicknessSlider.addEventListener('input', updateMapView);
     markerRadiusSlider.addEventListener('input', updateMapView);
 });
