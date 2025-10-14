@@ -31,3 +31,17 @@ input[type="range"] { width: 100%; }
 .location-popup ul, .leaflet-popup-content ul { max-height: 150px; overflow-y: auto; padding-left: 20px; }
 .popup-section { border-top: 1px solid #eee; margin-top: 8px; padding-top: 8px; }
 .materials-list { margin-top: 5px; padding-left: 20px; }
+
+/* --- INÍCIO DA MODIFICAÇÃO: Estilos do Modal de CO2 --- */
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); z-index: 2000; display: none; justify-content: center; align-items: center; }
+.modal-overlay.visible { display: flex; }
+.modal-content { background-color: var(--am-white); width: 450px; max-width: 90%; border-radius: 8px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background-color: var(--am-dark-grey); color: var(--am-white); border-top-left-radius: 8px; border-top-right-radius: 8px; }
+.modal-header .close-button { color: var(--am-white); }
+.modal-body { padding: 20px; }
+.input-group { display: flex; align-items: center; margin-bottom: 15px; }
+.input-group label { flex: 1; font-weight: bold; }
+.input-group input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+#co2-results-container { margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--am-light-grey); }
+#co2-results-container h4 { margin-bottom: 10px; }
+#co2-results-container p { margin: 5px 0; }
