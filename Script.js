@@ -1,4 +1,4 @@
-// Versão Definitiva com Calculadora de CO2 e Formatação de Números - 22/08/2025
+// Versão 14/10/2025
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Seleção de todos os elementos do DOM ---
     const flowsFileInput = document.getElementById('flows-file');
@@ -362,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const totalEmission = emissions.RODO + emissions.FERRO + emissions.MARITIMO + emissions.Outros;
         
-        // --- INÍCIO DA MODIFICAÇÃO: Formatação dos números ---
+        // Formatação dos números
         const formatNumber = (num, decimalPlaces) => {
             return new Intl.NumberFormat('pt-BR', {
                 minimumFractionDigits: decimalPlaces,
@@ -379,7 +379,6 @@ document.addEventListener('DOMContentLoaded', () => {
             <hr>
             <p><strong>Total Geral:</strong> ${formatNumber(totalEmission, 4)}</p>
         `;
-        // --- FIM DA MODIFICAÇÃO ---
     };
 
     // --- 5. Vinculação Final dos Eventos ---
