@@ -35,9 +35,26 @@ document.addEventListener('DOMContentLoaded', () => {
     map.addLayer(markersLayer);
 
     // --- 3. Paletas de Cores e Configurações ---
-    const transportModeColorMap = { "RODO": "#007bff", "MARITIMO": "#17a2b8", "FERRO": "#28a745", "Default": "#6c757d", "FM": "#28a745", "MM": "#007bff", "LM": "#FF3700", "Default": "#6c757d"};
+    const transportModeColorMap = { "FM": "#28a745", "MM": "#007bff", "LM": "#000000", "Default": "#6c757d" };
     const markerColorMap = { "Proprio": "#0072ce", "Transporte": "#414141", "Cliente": "#FF3700", "Terceiro": "#D8D8D8", "Default": "#151515" };
+    
+    // --- Nova Lógica para Cores Dinâmicas do Last Mile (LM) ---
+    const originColorPalette = [
+        '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', 
+        '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3'
+    ]; // Uma paleta com várias cores distintas
+    const originColorsAssigned = {};
+    let originColorIndex = 0;
 
+    // Função que dá uma cor fixa baseada na origem
+    const getOriginColor = (originId) => {
+        if (!originColorsAssigned[originId]) {
+            originColorsAssigned[originId] = originColorPalette[originColorIndex % originColorPalette.length];
+            originColorIndex++;
+        }
+        return originColorsAssigned[originId];
+    };
+    
     // --- 4. Funções Principais ---
 
     const updateRunButtonStatus = () => {
@@ -187,7 +204,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 Object.keys(flow.materials).forEach(m => uniqueProducts.add(m));
                 const originCoords = locationCoords[flow.origin], destCoords = locationCoords[flow.destination];
                 if (originCoords && destCoords) {
-                    const polyline = L.polyline([originCoords, destCoords], { color: transportModeColorMap[flow.transportMode] || transportModeColorMap["Default"], opacity: 0.7 });
+                    // 1. Pega a cor padrão (FM e MM continuam fixos pelo transportModeColorMap)
+                    let lineColor = transportModeColorMap[flow.transportMode] || transportModeColorMap["Default"];
+                    
+                    // 2. Se for Last Mile (LM), substitui pela cor baseada na origem
+                    if (flow.transportMode === 'LM') {
+                        lineColor = getOriginColor(flow.origin);
+                    }
+                    
+                    // 3. Desenha a linha com a cor definida acima
+                    const polyline = L.polyline([originCoords, destCoords], { color: lineColor, opacity: 0.7 });
                     const originCountry = locationInfo[flow.origin]?.country, destCountry = locationInfo[flow.destination]?.country;
                     polyline.flowData = { ...flow, market: (originCountry === 'Brasil' && destCountry === 'Brasil') ? 'mi' : 'me' };
                     allPolylines.push(polyline);
