@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
     map.addLayer(markersLayer);
 
     // --- 3. Paletas de Cores e Configurações ---
-    const transportModeColorMap = { "RODO": "#007bff", "MARITIMO": "#17a2b8", "FERRO": "#28a745", "Default": "#6c757d" };
+    const transportModeColorMap = { "RODO": "#007bff", "MARITIMO": "#17a2b8", "FERRO": "#28a745", "Default": "#6c757d", "FM": "#28a745", "MM": "#007bff", "LM": "#FF3700", "Default": "#6c757d"};
     const markerColorMap = { "Proprio": "#0072ce", "Transporte": "#414141", "Cliente": "#FF3700", "Terceiro": "#D8D8D8", "Default": "#151515" };
 
     // --- 4. Funções Principais ---
