@@ -40,22 +40,22 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- Nova Lógica para Cores Dinâmicas do Last Mile (LM) ---
     const originColorPalette = [
-            '#3B5249', // Verde ardósia escuro
-            '#513B52', // Roxo acinzentado escuro
-            '#633737', // Vinho desaturado
-            '#3B4852', // Azul marinho acinzentado
-            '#635537', // Ocre / Marrom escuro
-            '#376355', // Teal / Petróleo escuro
-            '#433763', // Índigo desaturado
-            '#5C4A4A', // Marrom avermelhado
-            '#4A5C53', // Verde musgo
-            '#4A515C', // Azul aço escuro
-            '#705446', // Mocha / Café escuro
-            '#6B4556', // Ameixa / Malva escuro
-            '#5C6B45', // Oliva escuro
-            '#455C6B', // Azul ardósia
-            '#4A4A4A', // Cinza chumbo
-            '#52483B'  // Marrom acinzentado
+            '#D9544D', // Vermelho Coral
+            '#58A65C', // Verde Médio
+            '#4A89C7', // Azul Médio
+            '#E88E43', // Laranja Queimado
+            '#9564BA', // Roxo Médio
+            '#4CB5AD', // Turquesa
+            '#D4689E', // Rosa Antigo
+            '#92AC46', // Verde Oliva Claro
+            '#B86B4D', // Ferrugem
+            '#439CA3', // Azul Petróleo Claro
+            '#6062B0', // Azul Violeta
+            '#D1AA45', // Mostarda
+            '#B55776', // Cereja
+            '#5CA377', // Verde Folha
+            '#6A80A6', // Azul Ardósia Médio
+            '#BC5362'  // Vermelho Tijolo
         ];
     const originColorsAssigned = {};
     let originColorIndex = 0;
