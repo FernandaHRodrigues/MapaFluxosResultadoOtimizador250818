@@ -214,7 +214,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     // 3. Desenha a linha com a cor definida acima
                     const polyline = L.polyline([originCoords, destCoords], { color: lineColor, opacity: 0.7 });
-                    const originCountry = locationInfo[flow.origin]?.country, destCountry = locationInfo[flow.destination]?.country;
+                    
+                    const originCountry = locationInfo[flow.origin]?.country;
+                    const destCountry = locationInfo[flow.destination]?.country;
                     polyline.flowData = { ...flow, market: (originCountry === 'Brasil' && destCountry === 'Brasil') ? 'mi' : 'me' };
                     allPolylines.push(polyline);
                     uniqueModes.add(flow.transportMode);
