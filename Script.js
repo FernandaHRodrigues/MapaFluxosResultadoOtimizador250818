@@ -40,9 +40,23 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- Nova Lógica para Cores Dinâmicas do Last Mile (LM) ---
     const originColorPalette = [
-        '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', 
-        '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3'
-    ]; // Uma paleta com várias cores distintas
+            '#3B5249', // Verde ardósia escuro
+            '#513B52', // Roxo acinzentado escuro
+            '#633737', // Vinho desaturado
+            '#3B4852', // Azul marinho acinzentado
+            '#635537', // Ocre / Marrom escuro
+            '#376355', // Teal / Petróleo escuro
+            '#433763', // Índigo desaturado
+            '#5C4A4A', // Marrom avermelhado
+            '#4A5C53', // Verde musgo
+            '#4A515C', // Azul aço escuro
+            '#705446', // Mocha / Café escuro
+            '#6B4556', // Ameixa / Malva escuro
+            '#5C6B45', // Oliva escuro
+            '#455C6B', // Azul ardósia
+            '#4A4A4A', // Cinza chumbo
+            '#52483B'  // Marrom acinzentado
+        ];
     const originColorsAssigned = {};
     let originColorIndex = 0;
 
@@ -213,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     
                     // 3. Desenha a linha com a cor definida acima
-                    const polyline = L.polyline([originCoords, destCoords], { color: lineColor, opacity: 0.7 });
+                    const polyline = L.polyline([originCoords, destCoords], { color: lineColor, opacity: 0.9 });
                     
                     const originCountry = locationInfo[flow.origin]?.country;
                     const destCountry = locationInfo[flow.destination]?.country;
