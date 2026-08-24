@@ -40,23 +40,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- Nova Lógica para Cores Dinâmicas do Last Mile (LM) ---
     const originColorPalette = [
-            '#D9544D', // Vermelho Coral
-            '#58A65C', // Verde Médio
-            '#4A89C7', // Azul Médio
-            '#E88E43', // Laranja Queimado
-            '#9564BA', // Roxo Médio
-            '#4CB5AD', // Turquesa
-            '#D4689E', // Rosa Antigo
-            '#92AC46', // Verde Oliva Claro
-            '#B86B4D', // Ferrugem
-            '#439CA3', // Azul Petróleo Claro
-            '#6062B0', // Azul Violeta
-            '#D1AA45', // Mostarda
-            '#B55776', // Cereja
-            '#5CA377', // Verde Folha
-            '#6A80A6', // Azul Ardósia Médio
-            '#BC5362'  // Vermelho Tijolo
-        ];
+        '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', 
+        '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3'
+    ];
     const originColorsAssigned = {};
     let originColorIndex = 0;
 
